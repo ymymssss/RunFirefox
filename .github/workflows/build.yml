@@ -164,46 +164,72 @@ jobs:
           git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD~5)..HEAD 2>/dev/null || echo "Initial release" >> $GITHUB_OUTPUT
           echo 'EOF' >> $GITHUB_OUTPUT
 
-      - name: Write changelog to file
-        shell: bash
-        run: |
-          cat > /tmp/changelog.txt << 'CHANGELOG_EOF'
-          ${{ steps.changelog.outputs.changes }}
-          CHANGELOG_EOF
-          echo "Changelog file contents:"
-          cat /tmp/changelog.txt
-
       - name: Create release and upload assets
-        shell: bash
+        shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.get_version.outputs.VERSION }}
-          REPO: ${{ github.repository }}
         run: |
-          echo "Step 1: Check gh CLI"
-          which gh || { echo "gh not found!"; exit 1; }
-          gh --version
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $repo = "${{ github.repository }}"
+          $token = $env:GITHUB_TOKEN
+          $baseUri = "https://api.github.com/repos/$repo"
 
-          echo "Step 2: List files"
-          ls -la *.zip *.exe README.md 2>/dev/null || true
-
-          echo "Step 3: Count zip files"
-          ZCOUNT=$(ls *.zip 2>/dev/null | wc -l)
-          echo "Zip files found: $ZCOUNT"
-          if [ "$ZCOUNT" -eq 0 ]; then
-            echo "ERROR: No zip files to upload!"
+          Write-Host "=== Checking for zip files ==="
+          $zipFiles = Get-ChildItem *.zip -ErrorAction SilentlyContinue
+          if (-not $zipFiles) {
+            Write-Error "No zip files found! Running dir for debug:"
+            Get-ChildItem | ForEach-Object { Write-Host $_.Name }
             exit 1
-          fi
+          }
+          Write-Host "Found $($zipFiles.Count) zip files:"
+          $zipFiles | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
 
-          echo "Step 4: Delete existing release"
-          gh release delete "v${VERSION}" --yes --repo "$REPO" 2>&1 || echo "Delete failed (may be OK)"
+          Write-Host "=== Checking for exe files ==="
+          Get-ChildItem *.exe -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)" }
 
-          echo "Step 5: Create release"
-          gh release create "v${VERSION}" \
-            *.zip \
-            --title "v${VERSION}" \
-            --notes-file /tmp/changelog.txt \
-            --repo "$REPO" 2>&1
+          Write-Host "=== Deleting existing release ==="
+          try {
+            $existing = Invoke-RestMethod -Uri "$baseUri/releases/tags/v$version" -Method Get -Headers @{Authorization="Bearer $token"} -ErrorAction SilentlyContinue
+            if ($existing) {
+              Invoke-RestMethod -Uri "$baseUri/releases/$($existing.id)" -Method Delete -Headers @{Authorization="Bearer $token"}
+              Write-Host "Deleted existing release"
+            }
+          } catch {
+            Write-Host "No existing release (HTTP $($_.Exception.Response.StatusCode.value__))"
+          }
+
+          Write-Host "=== Creating release ==="
+          $changelog = @"
+          ${{ steps.changelog.outputs.changes }}
+          "@
+          $releaseBody = @{
+            tag_name = "v$version"
+            name = "v$version"
+            body = $changelog
+            draft = $false
+            prerelease = $false
+          } | ConvertTo-Json
+
+          $release = Invoke-RestMethod -Uri "$baseUri/releases" -Method Post -Headers @{
+            Authorization = "Bearer $token"
+            Accept = "application/vnd.github.v3+json"
+          } -Body $releaseBody -ContentType "application/json"
+
+          Write-Host "Release created: $($release.html_url)"
+
+          Write-Host "=== Uploading assets ==="
+          $uploadUri = $release.upload_url -replace '\{[^}]+\}', ''
+          foreach ($zip in $zipFiles) {
+            Write-Host "Uploading $($zip.Name)..."
+            $uploadUrl = "${uploadUri}?name=$($zip.Name)"
+            Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers @{
+              Authorization = "Bearer $token"
+              Accept = "application/vnd.github.v3+json"
+            } -ContentType "application/zip" -InFile $zip.FullName
+            Write-Host "  Uploaded $($zip.Name)"
+          }
+
+          Write-Host "=== Done ==="
 
       - uses: EndBug/add-and-commit@v9
         with:
