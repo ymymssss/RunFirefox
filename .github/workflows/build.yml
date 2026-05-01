@@ -65,44 +65,38 @@ jobs:
           if ($aut2exe) { Write-Host "Found: $($aut2exe.FullName)" } else { Write-Host "NOT FOUND" }
 
       - name: Build scripts
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          $aut2exe = Get-ChildItem "${env:ProgramFiles(x86)}\AutoIt3" -Recurse -Filter "Aut2Exe*" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $aut2exe) {
-            Write-Error "aut2exe not found!"
+          AUT2EXE=$(find "/c/Program Files (x86)/AutoIt3/" -iname "aut2exe*" -type f 2>/dev/null | head -1)
+          if [ -z "$AUT2EXE" ]; then
+            echo "ERROR: aut2exe not found!"
             exit 1
-          }
-          Write-Host "Using: $($aut2exe.FullName)"
+          fi
+          echo "Using: $AUT2EXE"
+          echo "PWD: $(pwd)"
+          echo "AU3 files:"
+          ls *.au3
 
-          Get-ChildItem *.au3 | ForEach-Object {
-            $f = $_.Name
-            $base = $_.BaseName
-            $icon_line = Select-String -Path $f -Pattern '#AutoIt3Wrapper_Icon=' | Select-Object -First 1
-            $icon = if ($icon_line) { ($icon_line.Line -replace '.*#AutoIt3Wrapper_Icon=', '').Trim() } else { '' }
+          for f in *.au3; do
+            base="${f%.au3}"
+            icon=$(sed -n 's/.*#AutoIt3Wrapper_Icon=//p' "$f" | head -1)
+            echo "=== Building $f (base=$base icon=$icon) ==="
 
-            Write-Host "Building $f with icon=$icon..."
+            if [ -n "$icon" ] && [ -f "$icon" ]; then
+              echo "  [32-bit with icon]"
+              "$AUT2EXE" /in "$f" /out "${base}.exe" /x86 /unicode /icon "$icon" || echo "WARN: 32-bit build failed (exit $?)"
+              echo "  [64-bit with icon]"
+              "$AUT2EXE" /in "$f" /out "${base}_x64.exe" /x64 /unicode /icon "$icon" || echo "WARN: 64-bit build failed (exit $?)"
+            else
+              echo "  [32-bit no icon]"
+              "$AUT2EXE" /in "$f" /out "${base}.exe" /x86 /unicode || echo "WARN: 32-bit build failed (exit $?)"
+              echo "  [64-bit no icon]"
+              "$AUT2EXE" /in "$f" /out "${base}_x64.exe" /x64 /unicode || echo "WARN: 64-bit build failed (exit $?)"
+            fi
+          done
 
-            $out32 = "${base}.exe"
-            $out64 = "${base}_x64.exe"
-
-            # Build 32-bit
-            $args32 = @("/in", $f, "/out", $out32, "/x86", "/unicode")
-            if ($icon -and (Test-Path $icon)) { $args32 += @("/icon", $icon) }
-            Write-Host "  32-bit: $($aut2exe.Name) $($args32 -join ' ')"
-            $p32 = Start-Process -FilePath $aut2exe.FullName -ArgumentList $args32 -Wait -NoNewWindow -PassThru
-            if ($p32.ExitCode -ne 0) { Write-Host "WARN: $f 32-bit build failed (exit $($p32.ExitCode))" }
-
-            # Build 64-bit
-            $args64 = @("/in", $f, "/out", $out64, "/x64", "/unicode")
-            if ($icon -and (Test-Path $icon)) { $args64 += @("/icon", $icon) }
-            Write-Host "  64-bit: $($aut2exe.Name) $($args64 -join ' ')"
-            $p64 = Start-Process -FilePath $aut2exe.FullName -ArgumentList $args64 -Wait -NoNewWindow -PassThru
-            if ($p64.ExitCode -ne 0) { Write-Host "WARN: $f 64-bit build failed (exit $($p64.ExitCode))" }
-          }
-
-          Write-Host "Build complete. Output:"
-          Get-ChildItem *.exe | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
+          echo "=== Build complete. Output: ==="
+          ls -la *.exe 2>/dev/null || echo "No exe files produced"
 
       - name: Check the output
         shell: bash
