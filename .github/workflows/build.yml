@@ -90,6 +90,8 @@ jobs:
             exit 1
           }
 
+          $anyFailure = $false
+
           foreach ($f in $au3Files) {
             $base = $f.BaseName
             $scriptName = $f.Name
@@ -101,25 +103,35 @@ jobs:
             }
 
             Write-Host "=== Building $scriptName (base=$base icon=$icon) ==="
-
             $aut2exePath = $aut2exe.FullName
 
+            $iconArg = @()
             if ($icon -and (Test-Path $icon)) {
-              Write-Host "  [32-bit with icon]"
-              & $aut2exePath /in $scriptName /out "${base}.exe" /x86 /unicode /icon $icon 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: 32-bit build failed (exit $LASTEXITCODE)" }
+              $iconArg = @("/icon", $icon)
+            }
 
-              Write-Host "  [64-bit with icon]"
-              & $aut2exePath /in $scriptName /out "${base}_x64.exe" /x64 /unicode /icon $icon 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: 64-bit build failed (exit $LASTEXITCODE)" }
+            # Build 32-bit
+            $out32 = "${base}.exe"
+            $args32 = @("/in", $scriptName, "/out", $out32, "/x86", "/unicode", "/nopack") + $iconArg
+            Write-Host "  [32-bit] $aut2exePath $($args32 -join ' ')"
+            $p32 = Start-Process -FilePath $aut2exePath -ArgumentList $args32 -Wait -NoNewWindow -PassThru
+            if ($p32.ExitCode -ne 0 -or -not (Test-Path $out32)) {
+              Write-Host "  ERROR: 32-bit build failed (exit=$($p32.ExitCode), exists=$(Test-Path $out32))"
+              $anyFailure = $true
             } else {
-              Write-Host "  [32-bit no icon]"
-              & $aut2exePath /in $scriptName /out "${base}.exe" /x86 /unicode 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: 32-bit build failed (exit $LASTEXITCODE)" }
+              Write-Host "  OK: $out32 ($((Get-Item $out32).Length) bytes)"
+            }
 
-              Write-Host "  [64-bit no icon]"
-              & $aut2exePath /in $scriptName /out "${base}_x64.exe" /x64 /unicode 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: 64-bit build failed (exit $LASTEXITCODE)" }
+            # Build 64-bit
+            $out64 = "${base}_x64.exe"
+            $args64 = @("/in", $scriptName, "/out", $out64, "/x64", "/unicode", "/nopack") + $iconArg
+            Write-Host "  [64-bit] $aut2exePath $($args64 -join ' ')"
+            $p64 = Start-Process -FilePath $aut2exePath -ArgumentList $args64 -Wait -NoNewWindow -PassThru
+            if ($p64.ExitCode -ne 0 -or -not (Test-Path $out64)) {
+              Write-Host "  ERROR: 64-bit build failed (exit=$($p64.ExitCode), exists=$(Test-Path $out64))"
+              $anyFailure = $true
+            } else {
+              Write-Host "  OK: $out64 ($((Get-Item $out64).Length) bytes)"
             }
           }
 
@@ -128,7 +140,12 @@ jobs:
           if ($exeFiles) {
             $exeFiles | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
           } else {
-            Write-Host "No exe files produced!"
+            Write-Host "ERROR: No exe files produced!"
+            exit 1
+          }
+
+          if ($anyFailure) {
+            Write-Host "WARNING: Some builds failed but continuing..."
           }
 
       - name: Check the output
