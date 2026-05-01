@@ -177,34 +177,33 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          REPO: ${{ github.repository }}
         run: |
-          set -ex
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          REPO="${{ github.repository }}"
+          echo "Step 1: Check gh CLI"
+          which gh || { echo "gh not found!"; exit 1; }
+          gh --version
 
-          echo "=== Files in workspace ==="
-          ls -la
+          echo "Step 2: List files"
+          ls -la *.zip *.exe README.md 2>/dev/null || true
 
-          echo "=== ZIP files ==="
-          shopt -s nullglob
-          ZIPS=(*.zip)
-          if [ ${#ZIPS[@]} -eq 0 ]; then
-            echo "ERROR: No zip files found!"
+          echo "Step 3: Count zip files"
+          ZCOUNT=$(ls *.zip 2>/dev/null | wc -l)
+          echo "Zip files found: $ZCOUNT"
+          if [ "$ZCOUNT" -eq 0 ]; then
+            echo "ERROR: No zip files to upload!"
             exit 1
           fi
-          echo "Found ${#ZIPS[@]} zip files:"
-          ls -la *.zip
 
-          echo "=== Deleting existing release if any ==="
-          gh release delete "v${VERSION}" --yes --repo "$REPO" 2>/dev/null || echo "No existing release to delete"
+          echo "Step 4: Delete existing release"
+          gh release delete "v${VERSION}" --yes --repo "$REPO" 2>&1 || echo "Delete failed (may be OK)"
 
-          echo "=== Creating release and uploading assets ==="
+          echo "Step 5: Create release"
           gh release create "v${VERSION}" \
             *.zip \
-            README.md \
             --title "v${VERSION}" \
             --notes-file /tmp/changelog.txt \
-            --repo "$REPO"
+            --repo "$REPO" 2>&1
 
       - uses: EndBug/add-and-commit@v9
         with:
