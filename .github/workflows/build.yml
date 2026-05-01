@@ -18,10 +18,10 @@ jobs:
 
     steps:
       - name: Debug Info
+        shell: bash
         run: |
           echo "github.ref: ${{ github.ref }}"
           echo "github.event_name: ${{ github.event_name }}"
-        shell: bash
 
       - uses: actions/checkout@v3
 
@@ -33,8 +33,8 @@ jobs:
 
       - name: Get the version
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#*\/v}" >> $GITHUB_OUTPUT
         shell: bash
+        run: echo "VERSION=${GITHUB_REF#*\/v}" >> $GITHUB_OUTPUT
 
       - name: Update the version
         shell: bash
@@ -47,7 +47,6 @@ jobs:
         run: |
           for icon in icons/*.ico; do
             basename=$(basename "$icon" .ico)
-            # 排除原始Firefox图标
             if [ "$basename" != "Firefox" ]; then
               cp RunFirefox.au3 "Run${basename}.au3"
               sed -i "s/Firefox.ico/${basename}.ico/" "Run${basename}.au3"
@@ -57,132 +56,7 @@ jobs:
             fi
           done
 
-      - name: Verify AutoIt install
-        shell: pwsh
-        run: |
-          Write-Host "=== AutoIt3 dir ==="
-          Get-ChildItem "${env:ProgramFiles(x86)}\AutoIt3" -ErrorAction SilentlyContinue | Select-Object Name, Length
-          Write-Host "=== Looking for aut2exe ==="
-          $aut2exe = Get-ChildItem "${env:ProgramFiles(x86)}\AutoIt3" -Recurse -Filter "Aut2Exe*" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($aut2exe) { Write-Host "Found: $($aut2exe.FullName)" } else { Write-Host "NOT FOUND" }
-
-      - name: Build scripts
-        shell: pwsh
-        run: |
-          $autoitDir = "${env:ProgramFiles(x86)}\AutoIt3"
-          $aut2exe = Get-ChildItem "$autoitDir\Aut2Exe\Aut2Exe.exe" -ErrorAction SilentlyContinue
-          if (-not $aut2exe) {
-            Write-Host "Not in Aut2Exe subdir, searching recursively..."
-            $aut2exe = Get-ChildItem $autoitDir -Recurse -Filter "Aut2Exe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          }
-          if (-not $aut2exe) {
-            Write-Error "aut2exe not found!"
-            exit 1
-          }
-          Write-Host "Using: $($aut2exe.FullName)"
-          Write-Host "PWD: $(Get-Location)"
-          Write-Host "AU3 files:"
-          Get-ChildItem *.au3 | ForEach-Object { Write-Host "  $($_.Name)" }
-
-          $au3Files = Get-ChildItem *.au3
-          if (-not $au3Files) {
-            Write-Error "No .au3 files found!"
-            exit 1
-          }
-
-          $anyFailure = $false
-
-          foreach ($f in $au3Files) {
-            $base = $f.BaseName
-            $scriptName = $f.Name
-            $aut2exePath = $aut2exe.FullName
-
-            $icon_line = Select-String -Path $scriptName -Pattern '#AutoIt3Wrapper_Icon=' -SimpleMatch | Select-Object -First 1
-            $icon = ''
-            if ($icon_line) {
-              $icon = ($icon_line.Line -replace '.*#AutoIt3Wrapper_Icon=', '').Trim()
-            }
-
-            Write-Host "=== Building $scriptName (base=$base icon=$icon) ==="
-
-            # Build 32-bit
-            $out32 = "${base}.exe"
-            Write-Host "  [32-bit]"
-            if ($icon -and (Test-Path $icon)) {
-              cmd /c "`"$aut2exePath`" /in `"$scriptName`" /out `"$out32`" /x86 /unicode /nopack /icon `"$icon`"" 2>&1
-            } else {
-              cmd /c "`"$aut2exePath`" /in `"$scriptName`" /out `"$out32`" /x86 /unicode /nopack" 2>&1
-            }
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out32)) {
-              Write-Host "  ERROR: 32-bit build failed (exit=$LASTEXITCODE, exists=$(Test-Path $out32))"
-              $anyFailure = $true
-            } else {
-              Write-Host "  OK: $out32 ($((Get-Item $out32).Length) bytes)"
-            }
-
-            # Build 64-bit
-            $out64 = "${base}_x64.exe"
-            Write-Host "  [64-bit]"
-            if ($icon -and (Test-Path $icon)) {
-              cmd /c "`"$aut2exePath`" /in `"$scriptName`" /out `"$out64`" /x64 /unicode /nopack /icon `"$icon`"" 2>&1
-            } else {
-              cmd /c "`"$aut2exePath`" /in `"$scriptName`" /out `"$out64`" /x64 /unicode /nopack" 2>&1
-            }
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out64)) {
-              Write-Host "  ERROR: 64-bit build failed (exit=$LASTEXITCODE, exists=$(Test-Path $out64))"
-              $anyFailure = $true
-            } else {
-              Write-Host "  OK: $out64 ($((Get-Item $out64).Length) bytes)"
-            }
-          }
-
-          Write-Host "=== Build complete. Output: ==="
-          $exeFiles = Get-ChildItem *.exe -ErrorAction SilentlyContinue
-          if ($exeFiles) {
-            $exeFiles | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
-          } else {
-            Write-Error "ERROR: No exe files produced!"
-            exit 1
-          }
-
-          if ($anyFailure) {
-            Write-Host "WARNING: Some builds failed but continuing..."
-          }
-
-      - name: Check the output
-        shell: bash
-        run: |
-          ls -l
-
-      - name: Package the binaries
-        shell: pwsh
-        run: |
-          $version = "${{ steps.get_version.outputs.VERSION }}"
-          Get-ChildItem Run*.exe | ForEach-Object {
-            $exe = $_.Name
-            if ($exe -match '^(.+)_x64\.exe$') {
-              $base = $Matches[1]
-              $arch = "_x64"
-            } else {
-              $base = $exe -replace '\.exe$', ''
-              $arch = ""
-            }
-            $zipName = "${base}_${version}${arch}.zip"
-            Write-Host "Packaging $exe -> $zipName"
-            Compress-Archive -Path $exe -DestinationPath $zipName -Force
-          }
-          Write-Host "Packaging complete. ZIP files:"
-          Get-ChildItem *.zip | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
-
-      - name: Generate changelog
-        id: changelog
-        shell: bash
-        run: |
-          echo 'changes<<EOF' >> $GITHUB_OUTPUT
-          git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD~5)..HEAD 2>/dev/null || echo "Initial release" >> $GITHUB_OUTPUT
-          echo 'EOF' >> $GITHUB_OUTPUT
-
-      - name: Create release and upload assets
+      - name: Build, package, and release
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -190,63 +64,100 @@ jobs:
           $version = "${{ steps.get_version.outputs.VERSION }}"
           $repo = "${{ github.repository }}"
           $token = $env:GITHUB_TOKEN
-          $baseUri = "https://api.github.com/repos/$repo"
+          $ErrorActionPreference = "Continue"
 
-          Write-Host "=== Checking for zip files ==="
-          $zipFiles = Get-ChildItem *.zip -ErrorAction SilentlyContinue
-          if (-not $zipFiles) {
-            Write-Error "No zip files found! Running dir for debug:"
-            Get-ChildItem | ForEach-Object { Write-Host $_.Name }
+          # === Find AutoIt ===
+          $autoitDir = "${env:ProgramFiles(x86)}\AutoIt3"
+          $aut2exe = Get-ChildItem "$autoitDir\Aut2Exe\Aut2Exe.exe" -ErrorAction SilentlyContinue
+          if (-not $aut2exe) {
+            $aut2exe = Get-ChildItem $autoitDir -Recurse -Filter "Aut2Exe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (-not $aut2exe) { Write-Error "aut2exe not found!"; exit 1 }
+          Write-Host "Using: $($aut2exe.FullName)"
+          $aut2exePath = $aut2exe.FullName
+
+          # === Build all AU3 scripts ===
+          $au3Files = Get-ChildItem *.au3
+          if (-not $au3Files) { Write-Error "No .au3 files!"; exit 1 }
+
+          foreach ($f in $au3Files) {
+            $base = $f.BaseName
+            $sn = $f.Name
+            $icon = ''
+            $il = Select-String -Path $sn -Pattern '#AutoIt3Wrapper_Icon=' -SimpleMatch | Select-Object -First 1
+            if ($il) { $icon = ($il.Line -replace '.*#AutoIt3Wrapper_Icon=', '').Trim() }
+
+            Write-Host "Build: $sn icon=$icon"
+            foreach ($arch in @("x86","x64")) {
+              $out = if ($arch -eq "x86") { "${base}.exe" } else { "${base}_x64.exe" }
+              if ($icon -and (Test-Path $icon)) {
+                & $aut2exePath /in $sn /out $out /$arch /unicode /nopack /icon $icon 2>&1
+              } else {
+                & $aut2exePath /in $sn /out $out /$arch /unicode /nopack 2>&1
+              }
+              if ((Test-Path $out) -and ((Get-Item $out).Length -gt 1024)) {
+                Write-Host "  OK: $out ($((Get-Item $out).Length) bytes)"
+              } else {
+                Write-Host "  FAIL: $out not created or too small!"
+              }
+            }
+          }
+
+          # === Package into ZIPs ===
+          Write-Host "=== Packaging ==="
+          $exeFiles = @(Get-ChildItem Run*.exe -ErrorAction SilentlyContinue)
+          if ($exeFiles.Count -eq 0) {
+            Write-Error "No Run*.exe files found!"
+            Get-ChildItem | ForEach-Object { Write-Host "File: $($_.Name)" }
             exit 1
           }
-          Write-Host "Found $($zipFiles.Count) zip files:"
-          $zipFiles | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+          Write-Host "Found $($exeFiles.Count) exe files"
 
-          Write-Host "=== Checking for exe files ==="
-          Get-ChildItem *.exe -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)" }
-
-          Write-Host "=== Deleting existing release ==="
-          try {
-            $existing = Invoke-RestMethod -Uri "$baseUri/releases/tags/v$version" -Method Get -Headers @{Authorization="Bearer $token"} -ErrorAction SilentlyContinue
-            if ($existing) {
-              Invoke-RestMethod -Uri "$baseUri/releases/$($existing.id)" -Method Delete -Headers @{Authorization="Bearer $token"}
-              Write-Host "Deleted existing release"
+          foreach ($exe in $exeFiles) {
+            $name = $exe.Name
+            if ($name -match '^(.+)_x64\.exe$') {
+              $zipName = "$($Matches[1])_${version}_x64.zip"
+            } else {
+              $baseName = $name -replace '\.exe$', ''
+              $zipName = "${baseName}_${version}.zip"
             }
-          } catch {
-            Write-Host "No existing release (HTTP $($_.Exception.Response.StatusCode.value__))"
+            Write-Host "Zip: $name -> $zipName"
+            Compress-Archive -Path $name -DestinationPath $zipName -Force
           }
 
+          Write-Host "=== ZIP files ==="
+          $zipFiles = @(Get-ChildItem *.zip -ErrorAction SilentlyContinue)
+          if ($zipFiles.Count -eq 0) {
+            Write-Error "No zip files created!"
+            exit 1
+          }
+          $zipFiles | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
+
+          # === Create GitHub Release ===
           Write-Host "=== Creating release ==="
-          $changelog = @"
-          ${{ steps.changelog.outputs.changes }}
-          "@
-          $releaseBody = @{
-            tag_name = "v$version"
-            name = "v$version"
-            body = $changelog
-            draft = $false
-            prerelease = $false
-          } | ConvertTo-Json
+          $body = @{tag_name="v$version"; name="v$version"; body=""; draft=$false; prerelease=$false} | ConvertTo-Json
+          $headers = @{Authorization="Bearer $token"; Accept="application/vnd.github.v3+json"}
 
-          $release = Invoke-RestMethod -Uri "$baseUri/releases" -Method Post -Headers @{
-            Authorization = "Bearer $token"
-            Accept = "application/vnd.github.v3+json"
-          } -Body $releaseBody -ContentType "application/json"
+          # Delete existing release
+          try {
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/v$version" -Headers $headers -Method Get
+            Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$($rel.id)" -Headers $headers -Method Delete
+            Write-Host "Deleted existing release"
+          } catch { Write-Host "No existing release" }
 
-          Write-Host "Release created: $($release.html_url)"
+          # Create release
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method Post -Headers $headers -Body $body -ContentType "application/json"
+          Write-Host "Release: $($release.html_url)"
 
-          Write-Host "=== Uploading assets ==="
-          $uploadUri = $release.upload_url -replace '\{[^}]+\}', ''
+          # Upload assets
+          $uploadBase = $release.upload_url -replace '\{[^}]+\}', ''
           foreach ($zip in $zipFiles) {
-            Write-Host "Uploading $($zip.Name)..."
-            $uploadUrl = "${uploadUri}?name=$($zip.Name)"
-            Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers @{
+            Write-Host "Upload: $($zip.Name)"
+            Invoke-RestMethod -Uri "${uploadBase}?name=$($zip.Name)" -Method Post -Headers @{
               Authorization = "Bearer $token"
-              Accept = "application/vnd.github.v3+json"
-            } -ContentType "application/zip" -InFile $zip.FullName
-            Write-Host "  Uploaded $($zip.Name)"
+              "Content-Type" = "application/zip"
+            } -InFile $zip.FullName
           }
-
           Write-Host "=== Done ==="
 
       - uses: EndBug/add-and-commit@v9
