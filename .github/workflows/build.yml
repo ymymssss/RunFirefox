@@ -135,25 +135,24 @@ jobs:
           ls -l
 
       - name: Package the binaries
-        shell: bash
+        shell: pwsh
         run: |
-          # 仅处理以Run开头的exe文件
-          for exe in Run*.exe; do
-            # 提取基础名称和架构标识
-            if [[ "$exe" == *_x64.exe ]]; then
-              basename="${exe%_x64.exe}"
-              arch="_x64"
-            else
-              basename="${exe%.exe}"
-              arch=""
-            fi
-            
-            # 生成最终文件名
-            zip_name="${basename}_${{ steps.get_version.outputs.VERSION }}${arch}.zip"
-            
-            # 打包命令
-            7z a -tzip "$zip_name" "$exe"
-          done
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          Get-ChildItem Run*.exe | ForEach-Object {
+            $exe = $_.Name
+            if ($exe -match '^(.+)_x64\.exe$') {
+              $base = $Matches[1]
+              $arch = "_x64"
+            } else {
+              $base = $exe -replace '\.exe$', ''
+              $arch = ""
+            }
+            $zipName = "${base}_${version}${arch}.zip"
+            Write-Host "Packaging $exe -> $zipName"
+            Compress-Archive -Path $exe -DestinationPath $zipName -Force
+          }
+          Write-Host "Packaging complete. ZIP files:"
+          Get-ChildItem *.zip | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
 
       - uses: xresloader/upload-to-github-release@v1
         env:
