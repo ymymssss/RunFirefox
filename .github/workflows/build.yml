@@ -100,12 +100,13 @@ jobs:
           draft: false
           overwrite: true
 
-      - name: Create changelog text
+      - name: Generate changelog
         id: changelog
-        uses: endaft/action-changelog@v0.0.3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          exclude_types: other,doc,chore
+        shell: bash
+        run: |
+          echo 'changes<<EOF' >> $GITHUB_OUTPUT
+          git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD~5)..HEAD 2>/dev/null || echo "Initial release" >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
 
       - name: Update release
         uses: ColinPitrat/update-release@v1.0.1
