@@ -57,19 +57,13 @@ jobs:
             fi
           done
 
-      - name: Build scripts in parallel
-        shell: pwsh
+      - name: Build scripts
+        shell: bash
         run: |
-          $autoItPath = "C:\Program Files (x86)\AutoIt3\AutoIt3.exe"
-          $wrapperPath = "C:\Program Files (x86)\AutoIt3\SciTE\AutoIt3Wrapper\AutoIt3Wrapper.au3"
-          
-          # 获取所有需要编译的.au3文件
-          $scripts = Get-ChildItem -Filter *.au3
-          
-          # 并行编译，最多4个同时运行
-          $scripts | ForEach-Object -Parallel {
-              Start-Process -FilePath $using:autoItPath -ArgumentList "`"$using:wrapperPath`" /in `"$($_.FullName)`" /NoStatus" -NoNewWindow -Wait
-          } -ThrottleLimit 4
+          for f in *.au3; do
+            echo "Building $f..."
+            "/c/Program Files (x86)/AutoIt3/AutoIt3.exe" "/c/Program Files (x86)/AutoIt3/SciTE/AutoIt3Wrapper/AutoIt3Wrapper.au3" /in "$f" /NoStatus
+          done
 
       - name: Check the output
         shell: bash
