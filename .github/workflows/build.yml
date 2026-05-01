@@ -170,16 +170,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -ex
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          REPO="${{ github.repository }}"
+
           echo "=== Files in workspace ==="
           ls -la
+
           echo "=== ZIP files ==="
-          ls -la *.zip || echo "NO ZIP FILES!"
-          echo "=== Creating release ==="
-          gh release create "v${{ steps.get_version.outputs.VERSION }}" \
+          shopt -s nullglob
+          ZIPS=(*.zip)
+          if [ ${#ZIPS[@]} -eq 0 ]; then
+            echo "ERROR: No zip files found!"
+            exit 1
+          fi
+          echo "Found ${#ZIPS[@]} zip files:"
+          ls -la *.zip
+
+          echo "=== Deleting existing release if any ==="
+          gh release delete "v${VERSION}" --yes --repo "$REPO" 2>/dev/null || echo "No existing release to delete"
+
+          echo "=== Creating release and uploading assets ==="
+          gh release create "v${VERSION}" \
             *.zip \
-            --title "v${{ steps.get_version.outputs.VERSION }}" \
+            README.md \
+            --title "v${VERSION}" \
             --notes "${{ steps.changelog.outputs.changes }}" \
-            --repo ${{ github.repository }}
+            --repo "$REPO"
 
       - uses: EndBug/add-and-commit@v9
         with:
