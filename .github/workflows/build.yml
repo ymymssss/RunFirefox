@@ -37,45 +37,62 @@ jobs:
           $version = "${{ steps.get_version.outputs.VERSION }}"
           $autoitDir = "${env:ProgramFiles(x86)}\AutoIt3"
           $aut2exe = Get-ChildItem "$autoitDir\Aut2Exe\Aut2Exe.exe" -ErrorAction SilentlyContinue
-          if (-not $aut2exe) {
-            $aut2exe = Get-ChildItem $autoitDir -Recurse -Filter "Aut2Exe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          }
           if (-not $aut2exe) { log "ERROR: aut2exe not found!"; exit 1 }
-          log "aut2exe: $($aut2exe.FullName)"
-          log "AutoIt3 dir: $autoitDir"
-          log "Include dir:"
-          Get-ChildItem "$autoitDir\Include\*.au3" -ErrorAction SilentlyContinue | ForEach-Object { log "  $($_.Name)" }
-          log "Has Crypt.au3: $(Test-Path "$autoitDir\Include\Crypt.au3")"
+          log "aut2exe path: $($aut2exe.FullName)"
+          log "aut2exe exists: $(Test-Path $aut2exe.FullName)"
+          log "aut2exe size: $($aut2exe.Length) bytes"
+
+          function Run-Aut2Exe($inFile, $outFile, $arch, $iconFile) {
+            $args = "/in `"$inFile`" /out `"$outFile`" /$arch /unicode"
+            if ($iconFile -and (Test-Path $iconFile)) {
+              $args += " /icon `"$iconFile`""
+            }
+            log "  Command: $($aut2exe.FullName) $args"
+
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $aut2exe.FullName
+            $psi.Arguments = $args
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.CreateNoWindow = $true
+            $psi.WorkingDirectory = (Get-Location).Path
+
+            try {
+              $proc = [System.Diagnostics.Process]::Start($psi)
+              $stdout = $proc.StandardOutput.ReadToEnd()
+              $stderr = $proc.StandardError.ReadToEnd()
+              $proc.WaitForExit(60000)
+              log "  stdout: $stdout"
+              log "  stderr: $stderr"
+              log "  exit=$($proc.ExitCode), exists=$(Test-Path $outFile), size=$((Get-Item $outFile -ErrorAction SilentlyContinue).Length)"
+            } catch {
+              log "  EXCEPTION: $_"
+            }
+          }
 
           # Test 1: Hello World
           log "`n=== Test 1: Hello World ==="
           Set-Content -Path "test_hello.au3" -Value "MsgBox(0, '', 'Hello')"
-          $out = & $aut2exe.FullName /in test_hello.au3 /out test_hello.exe /x86 /unicode 2>&1
-          log "stdout: $out"
-          log "exit=$LASTEXITCODE, exists=$(Test-Path test_hello.exe), size=$((Get-Item test_hello.exe -ErrorAction SilentlyContinue).Length)"
+          Run-Aut2Exe "test_hello.au3" "test_hello.exe" "x86"
 
           # Test 2: With Crypt include
           log "`n=== Test 2: With Crypt.au3 ==="
           Set-Content -Path "test_crypt.au3" -Value "#include <Crypt.au3>`nMsgBox(0,'','test')"
-          $out = & $aut2exe.FullName /in test_crypt.au3 /out test_crypt.exe /x86 /unicode 2>&1
-          log "stdout: $out"
-          log "exit=$LASTEXITCODE, exists=$(Test-Path test_crypt.exe), size=$((Get-Item test_crypt.exe -ErrorAction SilentlyContinue).Length)"
+          Run-Aut2Exe "test_crypt.au3" "test_crypt.exe" "x86"
 
-          # Test 3: The real RunFirefox.au3
-          log "`n=== Test 3: RunFirefox.au3 ==="
-          $icon = "icons\Firefox.ico"
-          if (Test-Path $icon) {
-            $out = & $aut2exe.FullName /in RunFirefox.au3 /out RunFirefox.exe /x86 /unicode /icon $icon 2>&1
-          } else {
-            $out = & $aut2exe.FullName /in RunFirefox.au3 /out RunFirefox.exe /x86 /unicode 2>&1
-          }
-          log "stdout: $out"
-          log "exit=$LASTEXITCODE, exists=$(Test-Path RunFirefox.exe), size=$((Get-Item RunFirefox.exe -ErrorAction SilentlyContinue).Length)"
+          # Test 3: Real RunFirefox (32-bit)
+          log "`n=== Test 3: RunFirefox.au3 x86 ==="
+          Run-Aut2Exe "RunFirefox.au3" "RunFirefox.exe" "x86" "icons\Firefox.ico"
+
+          # Test 4: Real RunFirefox (64-bit)
+          log "`n=== Test 4: RunFirefox.au3 x64 ==="
+          Run-Aut2Exe "RunFirefox.au3" "RunFirefox_x64.exe" "x64" "icons\Firefox.ico"
 
           # Save log
           $log.ToString() | Out-File -FilePath build.log -Encoding UTF8
 
-          # Package Run*.exe + build log
+          # Package Run*.exe + log
           log "`n=== Packaging ==="
           $exeFiles = @(Get-ChildItem Run*.exe -ErrorAction SilentlyContinue)
           log "Run*.exe files: $($exeFiles.Count)"
@@ -87,9 +104,7 @@ jobs:
             log "Zip: $name -> $zipName"
             Compress-Archive -Path $name -DestinationPath $zipName -Force
           }
-          # Always include build log as zip so we can read it
           Compress-Archive -Path build.log -DestinationPath "build-log.zip" -Force
-          log "Created build-log.zip"
           Get-ChildItem *.zip -ErrorAction SilentlyContinue | ForEach-Object { log "  $($_.Name) ($($_.Length) bytes)" }
 
       - uses: softprops/action-gh-release@v1
