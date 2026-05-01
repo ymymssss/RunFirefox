@@ -166,9 +166,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v1
         with:
-          files: |
-            *.zip
-            README.md
+          files: "*.zip"
           body: ${{ steps.changelog.outputs.changes }}
           draft: false
 
