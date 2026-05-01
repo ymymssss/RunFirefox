@@ -164,11 +164,22 @@ jobs:
           git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD~5)..HEAD 2>/dev/null || echo "Initial release" >> $GITHUB_OUTPUT
           echo 'EOF' >> $GITHUB_OUTPUT
 
-      - uses: softprops/action-gh-release@v1
-        with:
-          files: "*.zip"
-          body: ${{ steps.changelog.outputs.changes }}
-          draft: false
+      - name: Create release and upload assets
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -ex
+          echo "=== Files in workspace ==="
+          ls -la
+          echo "=== ZIP files ==="
+          ls -la *.zip || echo "NO ZIP FILES!"
+          echo "=== Creating release ==="
+          gh release create "v${{ steps.get_version.outputs.VERSION }}" \
+            *.zip \
+            --title "v${{ steps.get_version.outputs.VERSION }}" \
+            --notes "${{ steps.changelog.outputs.changes }}" \
+            --repo ${{ github.repository }}
 
       - uses: EndBug/add-and-commit@v9
         with:
