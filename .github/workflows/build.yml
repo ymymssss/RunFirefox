@@ -31,59 +31,66 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
+          $log = [System.Text.StringBuilder]::new()
+          function log($msg) { Write-Host $msg; [void]$log.AppendLine($msg) }
+
           $version = "${{ steps.get_version.outputs.VERSION }}"
           $autoitDir = "${env:ProgramFiles(x86)}\AutoIt3"
           $aut2exe = Get-ChildItem "$autoitDir\Aut2Exe\Aut2Exe.exe" -ErrorAction SilentlyContinue
           if (-not $aut2exe) {
             $aut2exe = Get-ChildItem $autoitDir -Recurse -Filter "Aut2Exe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          if (-not $aut2exe) { Write-Error "aut2exe not found!"; exit 1 }
-          Write-Host "Using: $($aut2exe.FullName)"
+          if (-not $aut2exe) { log "ERROR: aut2exe not found!"; exit 1 }
+          log "aut2exe: $($aut2exe.FullName)"
+          log "AutoIt3 dir: $autoitDir"
+          log "Include dir:"
+          Get-ChildItem "$autoitDir\Include\*.au3" -ErrorAction SilentlyContinue | ForEach-Object { log "  $($_.Name)" }
+          log "Has Crypt.au3: $(Test-Path "$autoitDir\Include\Crypt.au3")"
 
-          # Only build RunFirefox.au3 (skip generated icon scripts for now)
-          $f = "RunFirefox.au3"
-          $base = "RunFirefox"
-          Write-Host "Building $f..."
+          # Test 1: Hello World
+          log "`n=== Test 1: Hello World ==="
+          Set-Content -Path "test_hello.au3" -Value "MsgBox(0, '', 'Hello')"
+          $out = & $aut2exe.FullName /in test_hello.au3 /out test_hello.exe /x86 /unicode 2>&1
+          log "stdout: $out"
+          log "exit=$LASTEXITCODE, exists=$(Test-Path test_hello.exe), size=$((Get-Item test_hello.exe -ErrorAction SilentlyContinue).Length)"
 
-          $out32 = "${base}.exe"
-          $out64 = "${base}_x64.exe"
+          # Test 2: With Crypt include
+          log "`n=== Test 2: With Crypt.au3 ==="
+          Set-Content -Path "test_crypt.au3" -Value "#include <Crypt.au3>`nMsgBox(0,'','test')"
+          $out = & $aut2exe.FullName /in test_crypt.au3 /out test_crypt.exe /x86 /unicode 2>&1
+          log "stdout: $out"
+          log "exit=$LASTEXITCODE, exists=$(Test-Path test_crypt.exe), size=$((Get-Item test_crypt.exe -ErrorAction SilentlyContinue).Length)"
 
-          # Try with icon
+          # Test 3: The real RunFirefox.au3
+          log "`n=== Test 3: RunFirefox.au3 ==="
           $icon = "icons\Firefox.ico"
           if (Test-Path $icon) {
-            Write-Host "  Icon found: $icon"
-            & $aut2exe.FullName /in $f /out $out32 /x86 /unicode /icon $icon 2>&1
-            Write-Host "  32-bit exit: $LASTEXITCODE, exists: $(Test-Path $out32), size: $(if (Test-Path $out32) { (Get-Item $out32).Length } else { 0 })"
-            & $aut2exe.FullName /in $f /out $out64 /x64 /unicode /icon $icon 2>&1
-            Write-Host "  64-bit exit: $LASTEXITCODE, exists: $(Test-Path $out64), size: $(if (Test-Path $out64) { (Get-Item $out64).Length } else { 0 })"
+            $out = & $aut2exe.FullName /in RunFirefox.au3 /out RunFirefox.exe /x86 /unicode /icon $icon 2>&1
           } else {
-            Write-Host "  No icon, building without"
-            & $aut2exe.FullName /in $f /out $out32 /x86 /unicode 2>&1
-            Write-Host "  32-bit exit: $LASTEXITCODE, exists: $(Test-Path $out32), size: $(if (Test-Path $out32) { (Get-Item $out32).Length } else { 0 })"
-            & $aut2exe.FullName /in $f /out $out64 /x64 /unicode 2>&1
-            Write-Host "  64-bit exit: $LASTEXITCODE, exists: $(Test-Path $out64), size: $(if (Test-Path $out64) { (Get-Item $out64).Length } else { 0 })"
+            $out = & $aut2exe.FullName /in RunFirefox.au3 /out RunFirefox.exe /x86 /unicode 2>&1
           }
+          log "stdout: $out"
+          log "exit=$LASTEXITCODE, exists=$(Test-Path RunFirefox.exe), size=$((Get-Item RunFirefox.exe -ErrorAction SilentlyContinue).Length)"
 
-          # Package
-          Write-Host "=== Packaging ==="
-          $exeFiles = @(Get-ChildItem *.exe -ErrorAction SilentlyContinue)
-          Write-Host "EXE files found: $($exeFiles.Count)"
-          $exeFiles | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+          # Save log
+          $log.ToString() | Out-File -FilePath build.log -Encoding UTF8
 
+          # Package Run*.exe + build log
+          log "`n=== Packaging ==="
+          $exeFiles = @(Get-ChildItem Run*.exe -ErrorAction SilentlyContinue)
+          log "Run*.exe files: $($exeFiles.Count)"
           foreach ($exe in $exeFiles) {
             $name = $exe.Name
-            if ($name -match '^(.+)_x64\.exe$') {
-              $zipName = "$($Matches[1])_${version}_x64.zip"
-            } else {
-              $baseName = $name -replace '\.exe$', ''
-              $zipName = "${baseName}_${version}.zip"
-            }
-            Write-Host "Zip: $name -> $zipName"
+            if ($name -match '_x64') { $suffix = "_x64" } else { $suffix = "" }
+            $baseName = $name -replace '_x64\.exe$','' -replace '\.exe$',''
+            $zipName = "${baseName}_${version}${suffix}.zip"
+            log "Zip: $name -> $zipName"
             Compress-Archive -Path $name -DestinationPath $zipName -Force
           }
-
-          Write-Host "=== Result ==="
-          Get-ChildItem *.zip -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
+          # Always include build log as zip so we can read it
+          Compress-Archive -Path build.log -DestinationPath "build-log.zip" -Force
+          log "Created build-log.zip"
+          Get-ChildItem *.zip -ErrorAction SilentlyContinue | ForEach-Object { log "  $($_.Name) ($($_.Length) bytes)" }
 
       - uses: softprops/action-gh-release@v1
         with:
