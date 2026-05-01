@@ -87,9 +87,9 @@ jobs:
             foreach ($arch in @("x86","x64")) {
               $out = if ($arch -eq "x86") { "${base}.exe" } else { "${base}_x64.exe" }
               if ($icon -and (Test-Path $icon)) {
-                & $aut2exePath /in $sn /out $out /$arch /unicode /nopack /icon $icon 2>&1
+                & $aut2exePath /in $sn /out $out /$arch /unicode /icon $icon 2>&1
               } else {
-                & $aut2exePath /in $sn /out $out /$arch /unicode /nopack 2>&1
+                & $aut2exePath /in $sn /out $out /$arch /unicode 2>&1
               }
               if ((Test-Path $out) -and ((Get-Item $out).Length -gt 1024)) {
                 Write-Host "  OK: $out ($((Get-Item $out).Length) bytes)"
