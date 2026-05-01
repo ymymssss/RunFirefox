@@ -60,9 +60,6 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.get_version.outputs.VERSION }}"
-          $ErrorActionPreference = "Continue"
-
-          # === Find AutoIt ===
           $autoitDir = "${env:ProgramFiles(x86)}\AutoIt3"
           $aut2exe = Get-ChildItem "$autoitDir\Aut2Exe\Aut2Exe.exe" -ErrorAction SilentlyContinue
           if (-not $aut2exe) {
@@ -70,41 +67,39 @@ jobs:
           }
           if (-not $aut2exe) { Write-Error "aut2exe not found!"; exit 1 }
           Write-Host "Using: $($aut2exe.FullName)"
-          $aut2exePath = $aut2exe.FullName
 
-          # === Build all AU3 scripts ===
-          $au3Files = Get-ChildItem *.au3
-          if (-not $au3Files) { Write-Error "No .au3 files!"; exit 1 }
+          Write-Host "=== Building ==="
+          Get-ChildItem *.au3 | ForEach-Object {
+            $f = $_.Name
+            $base = $_.BaseName
+            $icon_line = Select-String -Path $f -Pattern '#AutoIt3Wrapper_Icon=' | Select-Object -First 1
+            $icon = if ($icon_line) { ($icon_line.Line -replace '.*#AutoIt3Wrapper_Icon=', '').Trim() } else { '' }
 
-          foreach ($f in $au3Files) {
-            $base = $f.BaseName
-            $sn = $f.Name
-            $icon = ''
-            $il = Select-String -Path $sn -Pattern '#AutoIt3Wrapper_Icon=' -SimpleMatch | Select-Object -First 1
-            if ($il) { $icon = ($il.Line -replace '.*#AutoIt3Wrapper_Icon=', '').Trim() }
+            Write-Host "Building $f with icon=$icon..."
+            $out32 = "${base}.exe"
+            $out64 = "${base}_x64.exe"
 
-            Write-Host "Build: $sn icon=$icon"
-            foreach ($arch in @("x86","x64")) {
-              $out = if ($arch -eq "x86") { "${base}.exe" } else { "${base}_x64.exe" }
-              if ($icon -and (Test-Path $icon)) {
-                & $aut2exePath /in $sn /out $out /$arch /unicode /icon $icon 2>&1
-              } else {
-                & $aut2exePath /in $sn /out $out /$arch /unicode 2>&1
-              }
-              if ((Test-Path $out) -and ((Get-Item $out).Length -gt 1024)) {
-                Write-Host "  OK: $out ($((Get-Item $out).Length) bytes)"
-              } else {
-                Write-Host "  FAIL: $out not created or too small!"
-              }
+            if ($icon -and (Test-Path $icon)) {
+              & $aut2exe.FullName /in $f /out $out32 /x86 /unicode /icon $icon 2>&1
+              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 32-bit build failed (exit $LASTEXITCODE)" }
+              & $aut2exe.FullName /in $f /out $out64 /x64 /unicode /icon $icon 2>&1
+              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 64-bit build failed (exit $LASTEXITCODE)" }
+            } else {
+              & $aut2exe.FullName /in $f /out $out32 /x86 /unicode 2>&1
+              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 32-bit build failed (exit $LASTEXITCODE)" }
+              & $aut2exe.FullName /in $f /out $out64 /x64 /unicode 2>&1
+              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 64-bit build failed (exit $LASTEXITCODE)" }
             }
           }
 
-          # === Package into ZIPs ===
+          Write-Host "=== Build output ==="
+          Get-ChildItem *.exe -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
+
           Write-Host "=== Packaging ==="
           $exeFiles = @(Get-ChildItem Run*.exe -ErrorAction SilentlyContinue)
           if ($exeFiles.Count -eq 0) {
-            Write-Error "No Run*.exe files found! Listing all files:"
-            Get-ChildItem | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+            Write-Error "ERROR: No Run*.exe files found! Listing all files:"
+            Get-ChildItem | ForEach-Object { Write-Host "  $($_.Name)" }
             exit 1
           }
           Write-Host "Found $($exeFiles.Count) exe files"
@@ -121,14 +116,13 @@ jobs:
             Compress-Archive -Path $name -DestinationPath $zipName -Force
           }
 
-          Write-Host "=== ZIP files ==="
-          $zipFiles = @(Get-ChildItem *.zip -ErrorAction SilentlyContinue)
-          if ($zipFiles.Count -eq 0) {
-            Write-Error "No zip files created!"
+          Write-Host "=== ZIP output ==="
+          Get-ChildItem *.zip -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
+          if (-not (Get-ChildItem *.zip -ErrorAction SilentlyContinue)) {
+            Write-Error "ERROR: No zip files created!"
             exit 1
           }
-          $zipFiles | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
-          Write-Host "=== Build and package done ==="
+          Write-Host "=== Done ==="
 
       - uses: softprops/action-gh-release@v1
         with:
