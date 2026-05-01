@@ -56,41 +56,53 @@ jobs:
           done
 
       - name: Verify AutoIt install
-        shell: bash
+        shell: pwsh
         run: |
-          echo "=== AutoIt3 dir ==="
-          ls -la "/c/Program Files (x86)/AutoIt3/" || echo "NOT FOUND"
-          echo "=== Aut2Exe dir ==="
-          ls -la "/c/Program Files (x86)/AutoIt3/Aut2Exe/" || echo "NOT FOUND"
-          echo "=== Looking for aut2exe ==="
-          find "/c/Program Files (x86)/AutoIt3/" -name "*ut2exe*" -o -name "*UT2EXE*" 2>/dev/null || echo "NOT FOUND"
-          echo "=== All exe ==="
-          find "/c/Program Files (x86)/AutoIt3/" -name "*.exe" 2>/dev/null || echo "NONE"
+          Write-Host "=== AutoIt3 dir ==="
+          Get-ChildItem "${env:ProgramFiles(x86)}\AutoIt3" -ErrorAction SilentlyContinue | Select-Object Name, Length
+          Write-Host "=== Looking for aut2exe ==="
+          $aut2exe = Get-ChildItem "${env:ProgramFiles(x86)}\AutoIt3" -Recurse -Filter "Aut2Exe*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($aut2exe) { Write-Host "Found: $($aut2exe.FullName)" } else { Write-Host "NOT FOUND" }
 
       - name: Build scripts
-        shell: bash
+        shell: pwsh
         run: |
-          # Find aut2exe
-          AUT2EXE=$(find "/c/Program Files (x86)/AutoIt3/" -iname "aut2exe*" -type f 2>/dev/null | head -1)
-          if [ -z "$AUT2EXE" ]; then
-            echo "ERROR: aut2exe not found!"
+          $ErrorActionPreference = "Stop"
+          $aut2exe = Get-ChildItem "${env:ProgramFiles(x86)}\AutoIt3" -Recurse -Filter "Aut2Exe*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $aut2exe) {
+            Write-Error "aut2exe not found!"
             exit 1
-          fi
-          echo "Using: $AUT2EXE"
+          }
+          Write-Host "Using: $($aut2exe.FullName)"
 
-          for f in *.au3; do
-            base="${f%.au3}"
-            icon=$(sed -n 's/.*#AutoIt3Wrapper_Icon=//p' "$f" | head -1)
-            icon_arg=""
-            if [ -n "$icon" ] && [ -f "$icon" ]; then
-              icon_arg="/icon \"$icon\""
-            fi
-            echo "Building $f with icon=$icon..."
-            eval "\"$AUT2EXE\"" /in "\"$f\"" /out "\"${base}.exe\"" /x86 /unicode $icon_arg 2>&1 || echo "WARN: $f 32-bit build failed"
-            eval "\"$AUT2EXE\"" /in "\"$f\"" /out "\"${base}_x64.exe\"" /x64 /unicode $icon_arg 2>&1 || echo "WARN: $f 64-bit build failed"
-          done
-          echo "Build complete. Output:"
-          ls -la *.exe
+          Get-ChildItem *.au3 | ForEach-Object {
+            $f = $_.Name
+            $base = $_.BaseName
+            $icon_line = Select-String -Path $f -Pattern '#AutoIt3Wrapper_Icon=' | Select-Object -First 1
+            $icon = if ($icon_line) { ($icon_line.Line -replace '.*#AutoIt3Wrapper_Icon=', '').Trim() } else { '' }
+
+            Write-Host "Building $f with icon=$icon..."
+
+            $out32 = "${base}.exe"
+            $out64 = "${base}_x64.exe"
+
+            # Build 32-bit
+            $args32 = @("/in", $f, "/out", $out32, "/x86", "/unicode")
+            if ($icon -and (Test-Path $icon)) { $args32 += @("/icon", $icon) }
+            Write-Host "  32-bit: $($aut2exe.Name) $($args32 -join ' ')"
+            $p32 = Start-Process -FilePath $aut2exe.FullName -ArgumentList $args32 -Wait -NoNewWindow -PassThru
+            if ($p32.ExitCode -ne 0) { Write-Host "WARN: $f 32-bit build failed (exit $($p32.ExitCode))" }
+
+            # Build 64-bit
+            $args64 = @("/in", $f, "/out", $out64, "/x64", "/unicode")
+            if ($icon -and (Test-Path $icon)) { $args64 += @("/icon", $icon) }
+            Write-Host "  64-bit: $($aut2exe.Name) $($args64 -join ' ')"
+            $p64 = Start-Process -FilePath $aut2exe.FullName -ArgumentList $args64 -Wait -NoNewWindow -PassThru
+            if ($p64.ExitCode -ne 0) { Write-Host "WARN: $f 64-bit build failed (exit $($p64.ExitCode))" }
+          }
+
+          Write-Host "Build complete. Output:"
+          Get-ChildItem *.exe | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
 
       - name: Check the output
         shell: bash
