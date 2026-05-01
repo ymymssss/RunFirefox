@@ -55,23 +55,39 @@ jobs:
             fi
           done
 
+      - name: Verify AutoIt install
+        shell: bash
+        run: |
+          echo "=== AutoIt3 dir ==="
+          ls -la "/c/Program Files (x86)/AutoIt3/" || echo "NOT FOUND"
+          echo "=== Aut2Exe dir ==="
+          ls -la "/c/Program Files (x86)/AutoIt3/Aut2Exe/" || echo "NOT FOUND"
+          echo "=== Looking for aut2exe ==="
+          find "/c/Program Files (x86)/AutoIt3/" -name "*ut2exe*" -o -name "*UT2EXE*" 2>/dev/null || echo "NOT FOUND"
+          echo "=== All exe ==="
+          find "/c/Program Files (x86)/AutoIt3/" -name "*.exe" 2>/dev/null || echo "NONE"
+
       - name: Build scripts
         shell: bash
         run: |
-          AUT2EXE="/c/Program Files (x86)/AutoIt3/Aut2Exe/Aut2exe.exe"
+          # Find aut2exe
+          AUT2EXE=$(find "/c/Program Files (x86)/AutoIt3/" -iname "aut2exe*" -type f 2>/dev/null | head -1)
+          if [ -z "$AUT2EXE" ]; then
+            echo "ERROR: aut2exe not found!"
+            exit 1
+          fi
+          echo "Using: $AUT2EXE"
+
           for f in *.au3; do
             base="${f%.au3}"
-            # Extract icon path from wrapper directive
             icon=$(grep -oP '#AutoIt3Wrapper_Icon=\K.*' "$f" | head -1)
             icon_arg=""
             if [ -n "$icon" ] && [ -f "$icon" ]; then
               icon_arg="/icon \"$icon\""
             fi
             echo "Building $f with icon=$icon..."
-            # 32-bit
-            eval "$AUT2EXE" /in "\"$f\"" /out "\"${base}.exe\"" /x86 /unicode $icon_arg 2>&1 || echo "WARN: $f 32-bit build failed"
-            # 64-bit
-            eval "$AUT2EXE" /in "\"$f\"" /out "\"${base}_x64.exe\"" /x64 /unicode $icon_arg 2>&1 || echo "WARN: $f 64-bit build failed"
+            eval "\"$AUT2EXE\"" /in "\"$f\"" /out "\"${base}.exe\"" /x86 /unicode $icon_arg 2>&1 || echo "WARN: $f 32-bit build failed"
+            eval "\"$AUT2EXE\"" /in "\"$f\"" /out "\"${base}_x64.exe\"" /x64 /unicode $icon_arg 2>&1 || echo "WARN: $f 64-bit build failed"
           done
           echo "Build complete. Output:"
           ls -la *.exe
