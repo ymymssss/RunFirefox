@@ -56,14 +56,10 @@ jobs:
             fi
           done
 
-      - name: Build, package, and release
+      - name: Build and package
         shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = "${{ steps.get_version.outputs.VERSION }}"
-          $repo = "${{ github.repository }}"
-          $token = $env:GITHUB_TOKEN
           $ErrorActionPreference = "Continue"
 
           # === Find AutoIt ===
@@ -107,8 +103,8 @@ jobs:
           Write-Host "=== Packaging ==="
           $exeFiles = @(Get-ChildItem Run*.exe -ErrorAction SilentlyContinue)
           if ($exeFiles.Count -eq 0) {
-            Write-Error "No Run*.exe files found!"
-            Get-ChildItem | ForEach-Object { Write-Host "File: $($_.Name)" }
+            Write-Error "No Run*.exe files found! Listing all files:"
+            Get-ChildItem | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
             exit 1
           }
           Write-Host "Found $($exeFiles.Count) exe files"
@@ -132,33 +128,15 @@ jobs:
             exit 1
           }
           $zipFiles | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
+          Write-Host "=== Build and package done ==="
 
-          # === Create GitHub Release ===
-          Write-Host "=== Creating release ==="
-          $body = @{tag_name="v$version"; name="v$version"; body=""; draft=$false; prerelease=$false} | ConvertTo-Json
-          $headers = @{Authorization="Bearer $token"; Accept="application/vnd.github.v3+json"}
-
-          # Delete existing release
-          try {
-            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/v$version" -Headers $headers -Method Get
-            Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$($rel.id)" -Headers $headers -Method Delete
-            Write-Host "Deleted existing release"
-          } catch { Write-Host "No existing release" }
-
-          # Create release
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method Post -Headers $headers -Body $body -ContentType "application/json"
-          Write-Host "Release: $($release.html_url)"
-
-          # Upload assets
-          $uploadBase = $release.upload_url -replace '\{[^}]+\}', ''
-          foreach ($zip in $zipFiles) {
-            Write-Host "Upload: $($zip.Name)"
-            Invoke-RestMethod -Uri "${uploadBase}?name=$($zip.Name)" -Method Post -Headers @{
-              Authorization = "Bearer $token"
-              "Content-Type" = "application/zip"
-            } -InFile $zip.FullName
-          }
-          Write-Host "=== Done ==="
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            *.zip
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: EndBug/add-and-commit@v9
         with:
