@@ -44,6 +44,7 @@
 #include "libs\Polices.au3"
 #include "libs\ScriptingDictionary.au3"
 #include "libs\UpgradeHelper.au3"
+#include <Crypt.au3>
 
 Opt("GUIOnEventMode", 1)
 Opt("WinTitleMatchMode", 4)
@@ -62,8 +63,9 @@ Global $hCopyProfile, $hCustomPluginsDir, $hGetPluginsDir
 Global $hCustomCacheDir, $hGetCacheDir, $hCacheSize, $hCacheSizeSmart
 Global $hParams, $hStatus, $SettingsOK
 Global $hAllowBrowserUpdate, $hCheckAppUpdate, $hRunInBackground, $hChannel, $hDownloadFirefox32, $hDownloadFirefox64, $FirefoxURL
-Global $hExApp, $hExAppAutoExit, $hExApp2
+Global $hExApp, $hExAppAutoExit, $hExApp2, $hSetPassword, $hPasswordHint, $hClearPassword
 Global $aExApp, $aExApp2, $aExAppPID[2]
+Global $PasswordHash, $PasswordHint, $ProfileArchive
 
 Global $hEvent, $ClientKey, $FileAsso, $URLAsso
 Global $aREG[7][3] = [[$HKEY_CURRENT_USER, 'Software\Clients\StartMenuInternet'], _
@@ -109,6 +111,8 @@ If Not FileExists($inifile) Then
 	IniWrite($inifile, "Settings", "LastPlatformDir", "")
 	IniWrite($inifile, "Settings", "LastProfileDir", "")
 	IniWrite($inifile, "Settings", "GithubMirror", "https://mirror.serv00.net/gh")
+	IniWrite($inifile, "Settings", "PasswordHash", "")
+	IniWrite($inifile, "Settings", "PasswordHint", "")
 EndIf
 
 $CheckAppUpdate = IniRead($inifile, "Settings", "CheckAppUpdate", 1) * 1
@@ -133,6 +137,9 @@ $LastPlatformDir = IniRead($inifile, "Settings", "LastPlatformDir", 1)
 $LastProfileDir = IniRead($inifile, "Settings", "LastProfileDir", "")
 $LANGUAGE = IniRead($inifile, "Settings", "Language", "zh-CN")
 $GithubMirror = IniRead($inifile, "Settings", "GithubMirror", "https://mirror.serv00.net/gh")
+$PasswordHash = IniRead($inifile, "Settings", "PasswordHash", "")
+$PasswordHint = IniRead($inifile, "Settings", "PasswordHint", "")
+$ProfileArchive = @ScriptDir & "\profiles.7z"
 If Not $LANGUAGE Then
 	$LANGUAGE = 'zh-CN'
 EndIf
@@ -149,7 +156,7 @@ Opt("ExpandEnvStrings", 1)
 EnvSet("APP", @ScriptDir)
 
 ;~ 第一个启动参数为“-set”，或第一次运行，Firefox、配置文件夹、插件目录不存在，则显示设置窗口
-If ($cmdline[0] = 1 And $cmdline[1] = "-set") Or $FirstRun Or Not FileExists($FirefoxPath) Or Not FileExists($ProfileDir) Then
+If ($cmdline[0] = 1 And $cmdline[1] = "-set") Or $FirstRun Or Not FileExists($FirefoxPath) Or (Not FileExists($ProfileDir) And Not FileExists($ProfileArchive)) Then
 	CreateSettingsShortcut(@ScriptDir & "\" & $ScriptNameWithOutSuffix & ".vbs")
 	Settings()
 EndIf
@@ -200,6 +207,27 @@ If $LastPlatformDir <> "" Or $LastProfileDir <> "" Then
 		UpdateAddonStarup()
 		UpdateExtensionsJson()
 	EndIf
+EndIf
+
+;~ Password protection: decrypt profile before launching Firefox
+Local $bPasswordProtected = ($PasswordHash <> "")
+Local $sPassword = ""
+If $bPasswordProtected Then
+	If FileExists($ProfileArchive) Then
+		; Crash recovery: clean up leftover plaintext from previous abnormal exit
+		CleanProfileExceptExtensions()
+	Else
+		MsgBox(16, $CustomArch, StringReplace(_t("ProfileArchiveNotFound", "加密配置文件 %s 不存在！"), "%s", $ProfileArchive))
+		Exit
+	EndIf
+	$sPassword = PasswordPrompt()
+	If @error Then Exit
+	If Not DecryptProfile($sPassword) Then
+		MsgBox(16, $CustomArch, _t("DecryptFailed", "配置文件解密失败。"))
+		Exit
+	EndIf
+	; Force RunInBackground when password is set
+	$RunInBackground = 1
 EndIf
 
 ;~ Start Firefox
@@ -315,6 +343,16 @@ While 1
 		Next
 	EndIf
 WEnd
+
+	;~ Password protection: re-encrypt profile after Firefox exits
+	If $bPasswordProtected And $sPassword <> "" Then
+		; Wait a moment for Firefox to fully release file locks
+		Sleep(500)
+		If Not EncryptProfile($sPassword) Then
+			MsgBox(48, $CustomArch, _t("EncryptFailed", "加密配置文件失败！请勿直接拔除U盘，
+再次运行 " & @ScriptName & " 以重新加密。"))
+		EndIf
+	EndIf
 
 If $ExAppAutoExit And $ExApp <> "" Then
 	$cmd = ''
@@ -826,7 +864,7 @@ Func Settings()
 	EndIf
 
 	Opt("ExpandEnvStrings", 0)
-	$hSettings = GUICreate(_t("AppTitle", "{AppName} - 打造自己的 Firefox 便携版"), 500, 490)
+	$hSettings = GUICreate(_t("AppTitle", "{AppName} - 打造自己的 Firefox 便携版"), 500, 540)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "ExitApp")
 	GUICtrlCreateLabel(_t("AppCopyright", "{AppName} by Ryan <github-benzBrake@woai.ru>"), 5, 10, 490, -1, $SS_CENTER)
 	GUICtrlSetCursor(-1, 0)
@@ -913,6 +951,24 @@ Func Settings()
 		GUICtrlSetState($hRunInBackground, $GUI_CHECKED)
 	EndIf
 
+	; Password protection
+	GUICtrlCreateGroup(_t("Security", "安全保护"), 10, 405, 480, 55)
+	GUICtrlCreateLabel(_t("PasswordHintInput", "密码提示："), 20, 425, 60, 20)
+	$hPasswordHint = GUICtrlCreateEdit($PasswordHint, 80, 420, 200, 20, $ES_AUTOHSCROLL)
+	GUICtrlSetTip(-1, _t("PasswordHintTooltip", "设置一个只有你知道的密码提示"))
+	$hSetPassword = GUICtrlCreateButton(_t("SetPassword", "设置密码"), 290, 420, 80, 20)
+	GUICtrlSetTip(-1, _t("SetPasswordTooltip", "设置或修改启动密码"))
+	GUICtrlSetOnEvent(-1, "SetPasswordDlg")
+	$hClearPassword = GUICtrlCreateButton(_t("ClearPassword", "清除密码"), 375, 420, 80, 20)
+	GUICtrlSetTip(-1, _t("ClearPasswordTooltip", "移除密码保护"))
+	GUICtrlSetOnEvent(-1, "ClearPassword")
+	Local $sPasswordStatus = _t("PasswordNotSet", "未设置")
+	If $PasswordHash <> "" Then
+		$sPasswordStatus = _t("PasswordSet", "已设置")
+	EndIf
+	GUICtrlCreateLabel(_t("PasswordStatus", "状态：") & " " & $sPasswordStatus, 22, 445, 200, 15)
+	GUICtrlSetData(-1, _t("PasswordStatus", "状态：") & " " & $sPasswordStatus)
+
 	; 高级
 	GUICtrlCreateTabItem(_t("Advanced", "高级"))
 	GUICtrlCreateLabel(_t("PluginsDirectory", "插件目录"), 20, 90, 120, 20)
@@ -970,18 +1026,18 @@ Func Settings()
 	GUICtrlSetOnEvent(-1, "AddExApp2")
 
 	GUICtrlCreateTabItem("")
-	GUICtrlCreateButton(_t("CheckForUpdateManually", "检查更新"), 80, 440, 130, 20)
+	GUICtrlCreateButton(_t("CheckForUpdateManually", "检查更新"), 80, 490, 130, 20)
 	GUICtrlSetTip(-1, _t("ConfirmTooltip", "立即更新 {AppName}"))
 	GUICtrlSetOnEvent(-1, "CheckAppUpdate")
 	GUICtrlCreateTabItem("")
-	GUICtrlCreateButton(_t("Confirm", "确定"), 235, 440, 70, 20)
+	GUICtrlCreateButton(_t("Confirm", "确定"), 235, 490, 70, 20)
 	GUICtrlSetTip(-1, _t("ConfirmTooltip", "保存设置并启动浏览器"))
 	GUICtrlSetOnEvent(-1, "SettingsOK")
 	GUICtrlSetState(-1, $GUI_FOCUS)
-	GUICtrlCreateButton(_t("Cancel", "取消"), 330, 440, 70, 20)
+	GUICtrlCreateButton(_t("Cancel", "取消"), 330, 490, 70, 20)
 	GUICtrlSetTip(-1, _t("CancelTooltip", "不保存设置并退出"))
 	GUICtrlSetOnEvent(-1, "ExitApp")
-	GUICtrlCreateButton(_t("Apply", "应用"), 425, 440, 70, 20)
+	GUICtrlCreateButton(_t("Apply", "应用"), 425, 490, 70, 20)
 	GUICtrlSetTip(-1, _t("ApplyTooltip", "保存设置"))
 	GUICtrlSetOnEvent(-1, "SettingsApply")
 	$hStatus = _GUICtrlStatusBar_Create($hSettings, -1, _t("DoublieClickToOpenSettingsWindow", '双击软件目录下的 "%s.vbs" 文件可调出此窗口', $ScriptNameWithOutSuffix))
@@ -1171,6 +1227,10 @@ Func SettingsApply()
 	$var = $ExApp2
 	If StringRegExp($var, '^".*"$') Then $var = '"' & $var & '"'
 	IniWrite($inifile, "Settings", "ExApp2", $var)
+	If $PasswordHash <> "" Then
+		$PasswordHint = GUICtrlRead($hPasswordHint)
+		IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
+	EndIf
 
 	Opt("ExpandEnvStrings", 1)
 
@@ -1637,6 +1697,137 @@ Func ChangeLanguage()
 		EndIf
 	EndIf
 EndFunc   ;==>ChangeLanguage
+;~ =================================== Password Settings Handlers ===============================
+
+Func SetPasswordDlg()
+	Local $hDlg, $hOldPass, $hNewPass, $hNewPass2, $hOK, $hCancel
+	Local $newPassword = ""
+
+	$hDlg = GUICreate($CustomArch & " - " & _t("SetPasswordTitle", "设置密码"), 350, 210, -1, -1, _
+		BitOR($WS_CAPTION, $WS_SYSMENU, $WS_POPUP), -1, $hSettings)
+
+	Local $y = 15
+	If $PasswordHash <> "" Then
+		GUICtrlCreateLabel(_t("OldPasswordLabel", "当前密码："), 20, $y, 80, 20)
+		$hOldPass = GUICtrlCreateInput("", 110, $y - 2, 210, 20, BitOR($ES_PASSWORD, $ES_AUTOHSCROLL))
+		$y += 35
+	EndIf
+
+	GUICtrlCreateLabel(_t("NewPasswordLabel", "新密码："), 20, $y, 80, 20)
+	$hNewPass = GUICtrlCreateInput("", 110, $y - 2, 210, 20, BitOR($ES_PASSWORD, $ES_AUTOHSCROLL))
+	$y += 30
+	GUICtrlCreateLabel(_t("ConfirmPasswordLabel", "确认密码："), 20, $y, 80, 20)
+	$hNewPass2 = GUICtrlCreateInput("", 110, $y - 2, 210, 20, BitOR($ES_PASSWORD, $ES_AUTOHSCROLL))
+	$y += 40
+
+	$hOK = GUICtrlCreateButton(_t("Confirm", "确定"), 100, $y, 60, 20)
+	$hCancel = GUICtrlCreateButton(_t("Cancel", "取消"), 180, $y, 60, 20)
+
+	If $PasswordHash <> "" Then
+		GUICtrlSetState($hOldPass, $GUI_FOCUS)
+	Else
+		GUICtrlSetState($hNewPass, $GUI_FOCUS)
+	EndIf
+	GUISetState(@SW_SHOW, $hDlg)
+
+	Local $confirmed = False
+	Local $msg
+	While Not $confirmed
+		$msg = GUIGetMsg()
+		Switch $msg
+			Case $GUI_EVENT_CLOSE, $hCancel
+				GUIDelete($hDlg)
+				Return
+			Case $hOK
+				; Verify old password if needed
+				If $PasswordHash <> "" Then
+					_Crypt_Startup()
+					Local $oldHash = _Crypt_HashData(GUICtrlRead($hOldPass), $CALG_SHA_256)
+					_Crypt_Shutdown()
+					If $oldHash <> $PasswordHash Then
+						MsgBox(16, $CustomArch, _t("WrongOldPassword", "当前密码错误！"), 0, $hDlg)
+						GUICtrlSetData($hOldPass, "")
+						GUICtrlSetState($hOldPass, $GUI_FOCUS)
+						ContinueLoop
+					EndIf
+				EndIf
+
+				$newPassword = GUICtrlRead($hNewPass)
+				Local $confirmPassword = GUICtrlRead($hNewPass2)
+
+				If $newPassword = "" Then
+					MsgBox(16, $CustomArch, _t("PasswordEmpty", "密码不能为空！"), 0, $hDlg)
+					ContinueLoop
+				EndIf
+				If $newPassword <> $confirmPassword Then
+					MsgBox(16, $CustomArch, _t("PasswordMismatch", "两次输入的密码不一致！"), 0, $hDlg)
+					ContinueLoop
+				EndIf
+				If StringLen($newPassword) < 4 Then
+					MsgBox(16, $CustomArch, _t("PasswordTooShort", "密码长度不能少于4位！"), 0, $hDlg)
+					ContinueLoop
+				EndIf
+
+				; Save password hash
+				_Crypt_Startup()
+				Local $newHash = _Crypt_HashData($newPassword, $CALG_SHA_256)
+				_Crypt_Shutdown()
+
+				; First-time encryption
+				If $PasswordHash = "" And FileExists($ProfileDir) Then
+					$PasswordHash = $newHash
+					$ProfileArchive = @ScriptDir & "\profiles.7z"
+					If Not EncryptProfile($newPassword) Then
+						MsgBox(16, $CustomArch, _t("FirstEncryptFailed", "首次加密配置文件失败！"), 0, $hDlg)
+						$PasswordHash = ""
+						ContinueLoop
+					EndIf
+					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
+					MsgBox(64, $CustomArch, _t("FirstEncryptSuccess", "密码设置成功！配置文件已加密。"), 0, $hDlg)
+				ElseIf $PasswordHash <> "" Then
+					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
+					$PasswordHash = $newHash
+					MsgBox(64, $CustomArch, _t("PasswordChanged", "密码已更新。"), 0, $hDlg)
+				EndIf
+
+				$confirmed = True
+				GUIDelete($hDlg)
+		EndSwitch
+		Sleep(50)
+	WEnd
+EndFunc
+
+Func ClearPassword()
+	Local $msg
+
+	If $PasswordHash = "" Then
+		MsgBox(64, $CustomArch, _t("NoPasswordSet", "尚未设置密码。"), 0, $hSettings)
+		Return
+	EndIf
+
+	$msg = MsgBox(36, $CustomArch, _t("ClearPasswordConfirm", "确定要清除密码保护吗？\n配置文件将被解密还原。"), 0, $hSettings)
+	If $msg <> 6 Then Return
+
+	; Password verified in SetPasswordDlg or we trust the user since they're in Settings
+	; If the profile archive exists, we need the password to decrypt
+	If FileExists($ProfileArchive) Then
+		Local $password = PasswordPrompt()
+		If @error Then Return
+		If Not DecryptProfile($password) Then
+			MsgBox(16, $CustomArch, _t("DecryptFailed", "解密配置文件失败。"))
+			Return
+		EndIf
+		FileDelete($ProfileArchive)
+	EndIf
+
+	$PasswordHash = ""
+	IniWrite($inifile, "Settings", "PasswordHash", "")
+	$PasswordHint = ""
+	IniWrite($inifile, "Settings", "PasswordHint", "")
+	GUICtrlSetData($hPasswordHint, "")
+	MsgBox(64, $CustomArch, _t("PasswordCleared", "密码已清除，配置文件已解密。"), 0, $hSettings)
+EndFunc
+
 ; 保存语言
 Func SaveLang()
 	local $slang = GUICtrlRead($hlanguage), $index = -1, $keys = $LANGUAGES.Keys, $newLang = ""
@@ -1653,3 +1844,126 @@ Func SaveLang()
 	EndIf
 	Return $newLang
 EndFunc   ;==>SaveLang
+
+;~ =================================== Password Protection ===============================
+
+; Prompt user for password, return plaintext password. Sets @error on failure/cancel.
+Func PasswordPrompt()
+	Local $hPass, $hPassInput, $hPassHint, $hPassOK, $hPassCancel, $hAttemptLabel
+	Local $attempts = 3
+	Local $password = ""
+
+	$hPass = GUICreate($CustomArch & " - " & _t("EnterPassword", "请输入密码"), 380, 180, -1, -1, _
+		BitOR($WS_CAPTION, $WS_SYSMENU, $WS_POPUP))
+
+	GUICtrlCreateLabel(_t("PasswordPrompt", "此配置文件已加密保护，请输入密码："), 20, 15, 340, 20)
+
+	$hPassInput = GUICtrlCreateInput("", 20, 45, 340, 20, BitOR($ES_PASSWORD, $ES_AUTOHSCROLL))
+
+	$hPassHint = GUICtrlCreateLabel("", 20, 75, 340, 30)
+	If $PasswordHint <> "" Then
+		Local $hintText = _t("PasswordHintLabel", "提示：{Hint}")
+		GUICtrlSetData($hPassHint, StringReplace($hintText, "{Hint}", $PasswordHint))
+	EndIf
+
+	$hAttemptLabel = GUICtrlCreateLabel("", 20, 105, 340, 20)
+
+	$hPassOK = GUICtrlCreateButton(_t("Confirm", "确定"), 130, 140, 50, 20)
+	$hPassCancel = GUICtrlCreateButton(_t("Cancel", "取消"), 200, 140, 50, 20)
+
+	GUICtrlSetState($hPassInput, $GUI_FOCUS)
+	GUISetState(@SW_SHOW, $hPass)
+
+	Local $msg
+	While 1
+		$msg = GUIGetMsg()
+		Switch $msg
+			Case $GUI_EVENT_CLOSE, $hPassCancel
+				GUIDelete($hPass)
+				SetError(1)
+				Return ""
+			Case $hPassOK
+				$password = GUICtrlRead($hPassInput)
+				If $password = "" Then ContinueLoop
+				; Verify password hash
+				_Crypt_Startup()
+				Local $hash = _Crypt_HashData($password, $CALG_SHA_256)
+				_Crypt_Shutdown()
+				If $hash <> $PasswordHash Then
+					$attempts -= 1
+					If $attempts <= 0 Then
+						MsgBox(16, $CustomArch, _t("PasswordAttemptsExhausted", "密码错误，程序将退出。"))
+						GUIDelete($hPass)
+						SetError(1)
+						Return ""
+					EndIf
+					Local $attText = _t("PasswordAttempts", "密码错误，还剩 %s 次尝试。")
+					GUICtrlSetData($hAttemptLabel, StringReplace($attText, "%s", $attempts))
+					GUICtrlSetData($hPassInput, "")
+					GUICtrlSetState($hPassInput, $GUI_FOCUS)
+					ContinueLoop
+				EndIf
+				GUIDelete($hPass)
+				Return $password
+		EndSwitch
+		Sleep(50)
+	WEnd
+EndFunc
+
+; Extract 7za executable for current architecture (same pattern as mozlz4)
+Func Get7zaPath()
+	Local $exePath
+	If @OSArch = "X86" Then
+		$exePath = @ScriptDir & "\7za_32.exe"
+		FileInstall("7za_32.exe", $exePath)
+	Else
+		$exePath = @ScriptDir & "\7za_64.exe"
+		FileInstall("7za_64.exe", $exePath)
+	EndIf
+	Return $exePath
+EndFunc
+
+; Decrypt profiles.7z into profiles/ folder
+Func DecryptProfile($password)
+	Local $za = Get7zaPath()
+	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $password & '" -y'
+	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
+	If $exitCode <> 0 Then Return False
+	Return True
+EndFunc
+
+; Encrypt profiles/ folder into profiles.7z (excluding extensions/)
+Func EncryptProfile($password)
+	Local $za = Get7zaPath()
+	Local $archiveNew = $ProfileArchive & ".new"
+	; Create new archive
+	Local $cmd = '"' & $za & '" a -mx0 -p"' & $password & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
+	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
+	If $exitCode <> 0 Then
+		FileDelete($archiveNew)
+		Return False
+	EndIf
+	; Replace old archive with new one
+	FileDelete($ProfileArchive)
+	If Not FileMove($archiveNew, $ProfileArchive, 1) Then Return False
+	; Delete plaintext profile files (keep extensions/)
+	CleanProfileExceptExtensions()
+	Return True
+EndFunc
+
+; Delete all files/folders in profile dir except extensions/
+Func CleanProfileExceptExtensions()
+	If Not FileExists($ProfileDir) Then Return
+	Local $search = FileFindFirstFile($ProfileDir & "\*")
+	If $search = -1 Then Return
+	Local $file
+	While 1
+		$file = FileFindNextFile($search)
+		If @error Then ExitLoop
+		If $file = "." Or $file = ".." Then ContinueLoop
+		If $file = "extensions" Then ContinueLoop
+		FileDelete($ProfileDir & "\" & $file)
+		DirRemove($ProfileDir & "\" & $file, 1)
+	WEnd
+	FileClose($search)
+EndFunc
