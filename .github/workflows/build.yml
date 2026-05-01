@@ -164,6 +164,15 @@ jobs:
           git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD~5)..HEAD 2>/dev/null || echo "Initial release" >> $GITHUB_OUTPUT
           echo 'EOF' >> $GITHUB_OUTPUT
 
+      - name: Write changelog to file
+        shell: bash
+        run: |
+          cat > /tmp/changelog.txt << 'CHANGELOG_EOF'
+          ${{ steps.changelog.outputs.changes }}
+          CHANGELOG_EOF
+          echo "Changelog file contents:"
+          cat /tmp/changelog.txt
+
       - name: Create release and upload assets
         shell: bash
         env:
@@ -194,7 +203,7 @@ jobs:
             *.zip \
             README.md \
             --title "v${VERSION}" \
-            --notes "${{ steps.changelog.outputs.changes }}" \
+            --notes-file /tmp/changelog.txt \
             --repo "$REPO"
 
       - uses: EndBug/add-and-commit@v9
