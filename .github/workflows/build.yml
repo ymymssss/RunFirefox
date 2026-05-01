@@ -58,10 +58,23 @@ jobs:
       - name: Build scripts
         shell: bash
         run: |
+          AUT2EXE="/c/Program Files (x86)/AutoIt3/Aut2Exe/Aut2exe.exe"
           for f in *.au3; do
-            echo "Building $f..."
-            "/c/Program Files (x86)/AutoIt3/AutoIt3.exe" "/c/Program Files (x86)/AutoIt3/SciTE/AutoIt3Wrapper/AutoIt3Wrapper.au3" /in "$f" /NoStatus
+            base="${f%.au3}"
+            # Extract icon path from wrapper directive
+            icon=$(grep -oP '#AutoIt3Wrapper_Icon=\K.*' "$f" | head -1)
+            icon_arg=""
+            if [ -n "$icon" ] && [ -f "$icon" ]; then
+              icon_arg="/icon \"$icon\""
+            fi
+            echo "Building $f with icon=$icon..."
+            # 32-bit
+            eval "$AUT2EXE" /in "\"$f\"" /out "\"${base}.exe\"" /x86 /unicode $icon_arg 2>&1 || echo "WARN: $f 32-bit build failed"
+            # 64-bit
+            eval "$AUT2EXE" /in "\"$f\"" /out "\"${base}_x64.exe\"" /x64 /unicode $icon_arg 2>&1 || echo "WARN: $f 64-bit build failed"
           done
+          echo "Build complete. Output:"
+          ls -la *.exe
 
       - name: Check the output
         shell: bash
