@@ -80,7 +80,7 @@ jobs:
 
           for f in *.au3; do
             base="${f%.au3}"
-            icon=$(grep -oP '#AutoIt3Wrapper_Icon=\K.*' "$f" | head -1)
+            icon=$(sed -n 's/.*#AutoIt3Wrapper_Icon=//p' "$f" | head -1)
             icon_arg=""
             if [ -n "$icon" ] && [ -f "$icon" ]; then
               icon_arg="/icon \"$icon\""
