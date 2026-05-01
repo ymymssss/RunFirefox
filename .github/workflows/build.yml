@@ -23,7 +23,13 @@ jobs:
 
       - uses: actions/checkout@v3
 
-      - uses: liudonghua123/action-setup-autoit@main
+      - name: Setup AutoIt
+        shell: pwsh
+        run: |
+          $autoitInstaller = "$env:TEMP\autoit-installer.exe"
+          Invoke-WebRequest -Uri "https://www.autoitscript.com/cgi-bin/getfile.pl?autoit3/autoit-v3-setup.exe" -OutFile $autoitInstaller
+          Start-Process -FilePath $autoitInstaller -ArgumentList "/S" -Wait -NoNewWindow
+          echo "C:\Program Files (x86)\AutoIt3" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Get the version
         id: get_version
