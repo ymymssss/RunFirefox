@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: windows-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
 
     steps:
       - name: Debug Info
@@ -154,14 +156,11 @@ jobs:
           Write-Host "Packaging complete. ZIP files:"
           Get-ChildItem *.zip | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
 
-      - uses: xresloader/upload-to-github-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: softprops/action-gh-release@v1
         with:
-          file: "*.zip"
-          tags: true
+          files: "*.zip"
           draft: false
-          overwrite: true
+          generate_release_notes: true
 
       - name: Generate changelog
         id: changelog
