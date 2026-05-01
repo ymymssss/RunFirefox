@@ -5,8 +5,6 @@ on:
     branches: [master]
     tags:
       - "v*"
-  pull_request:
-    branches: [master]
   workflow_dispatch:
 
 jobs:
@@ -17,12 +15,6 @@ jobs:
       contents: write
 
     steps:
-      - name: Debug Info
-        shell: bash
-        run: |
-          echo "github.ref: ${{ github.ref }}"
-          echo "github.event_name: ${{ github.event_name }}"
-
       - uses: actions/checkout@v3
 
       - name: Setup AutoIt
@@ -36,27 +28,7 @@ jobs:
         shell: bash
         run: echo "VERSION=${GITHUB_REF#*\/v}" >> $GITHUB_OUTPUT
 
-      - name: Update the version
-        shell: bash
-        run: |
-          sed -i "s/#AutoIt3Wrapper_Res_Fileversion.*/#AutoIt3Wrapper_Res_Fileversion=${{ steps.get_version.outputs.VERSION }}.0/" RunFirefox.au3
-          sed -i "s/Global Const \$AppVersion.*/Global Const \$AppVersion = \"${{ steps.get_version.outputs.VERSION }}\"/" RunFirefox.au3
-
-      - name: Generate scripts for all icons
-        shell: bash
-        run: |
-          for icon in icons/*.ico; do
-            basename=$(basename "$icon" .ico)
-            if [ "$basename" != "Firefox" ]; then
-              cp RunFirefox.au3 "Run${basename}.au3"
-              sed -i "s/Firefox.ico/${basename}.ico/" "Run${basename}.au3"
-              sed -i "s/Global Const \$CustomArch.*/Global Const \$CustomArch = \"Run${basename}\"/" "Run${basename}.au3"
-              sed -i "s/RunFirefox.exe/Run${basename}.exe/" "Run${basename}.au3"
-              sed -i "s/RunFirefox_x64.exe/Run${basename}_x64.exe/" "Run${basename}.au3"
-            fi
-          done
-
-      - name: Build and package
+      - name: Build
         shell: pwsh
         run: |
           $version = "${{ steps.get_version.outputs.VERSION }}"
@@ -68,41 +40,35 @@ jobs:
           if (-not $aut2exe) { Write-Error "aut2exe not found!"; exit 1 }
           Write-Host "Using: $($aut2exe.FullName)"
 
-          Write-Host "=== Building ==="
-          Get-ChildItem *.au3 | ForEach-Object {
-            $f = $_.Name
-            $base = $_.BaseName
-            $icon_line = Select-String -Path $f -Pattern '#AutoIt3Wrapper_Icon=' | Select-Object -First 1
-            $icon = if ($icon_line) { ($icon_line.Line -replace '.*#AutoIt3Wrapper_Icon=', '').Trim() } else { '' }
+          # Only build RunFirefox.au3 (skip generated icon scripts for now)
+          $f = "RunFirefox.au3"
+          $base = "RunFirefox"
+          Write-Host "Building $f..."
 
-            Write-Host "Building $f with icon=$icon..."
-            $out32 = "${base}.exe"
-            $out64 = "${base}_x64.exe"
+          $out32 = "${base}.exe"
+          $out64 = "${base}_x64.exe"
 
-            if ($icon -and (Test-Path $icon)) {
-              & $aut2exe.FullName /in $f /out $out32 /x86 /unicode /icon $icon 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 32-bit build failed (exit $LASTEXITCODE)" }
-              & $aut2exe.FullName /in $f /out $out64 /x64 /unicode /icon $icon 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 64-bit build failed (exit $LASTEXITCODE)" }
-            } else {
-              & $aut2exe.FullName /in $f /out $out32 /x86 /unicode 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 32-bit build failed (exit $LASTEXITCODE)" }
-              & $aut2exe.FullName /in $f /out $out64 /x64 /unicode 2>&1
-              if ($LASTEXITCODE -ne 0) { Write-Host "WARN: $f 64-bit build failed (exit $LASTEXITCODE)" }
-            }
+          # Try with icon
+          $icon = "icons\Firefox.ico"
+          if (Test-Path $icon) {
+            Write-Host "  Icon found: $icon"
+            & $aut2exe.FullName /in $f /out $out32 /x86 /unicode /icon $icon 2>&1
+            Write-Host "  32-bit exit: $LASTEXITCODE, exists: $(Test-Path $out32), size: $(if (Test-Path $out32) { (Get-Item $out32).Length } else { 0 })"
+            & $aut2exe.FullName /in $f /out $out64 /x64 /unicode /icon $icon 2>&1
+            Write-Host "  64-bit exit: $LASTEXITCODE, exists: $(Test-Path $out64), size: $(if (Test-Path $out64) { (Get-Item $out64).Length } else { 0 })"
+          } else {
+            Write-Host "  No icon, building without"
+            & $aut2exe.FullName /in $f /out $out32 /x86 /unicode 2>&1
+            Write-Host "  32-bit exit: $LASTEXITCODE, exists: $(Test-Path $out32), size: $(if (Test-Path $out32) { (Get-Item $out32).Length } else { 0 })"
+            & $aut2exe.FullName /in $f /out $out64 /x64 /unicode 2>&1
+            Write-Host "  64-bit exit: $LASTEXITCODE, exists: $(Test-Path $out64), size: $(if (Test-Path $out64) { (Get-Item $out64).Length } else { 0 })"
           }
 
-          Write-Host "=== Build output ==="
-          Get-ChildItem *.exe -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
-
+          # Package
           Write-Host "=== Packaging ==="
-          $exeFiles = @(Get-ChildItem Run*.exe -ErrorAction SilentlyContinue)
-          if ($exeFiles.Count -eq 0) {
-            Write-Error "ERROR: No Run*.exe files found! Listing all files:"
-            Get-ChildItem | ForEach-Object { Write-Host "  $($_.Name)" }
-            exit 1
-          }
-          Write-Host "Found $($exeFiles.Count) exe files"
+          $exeFiles = @(Get-ChildItem *.exe -ErrorAction SilentlyContinue)
+          Write-Host "EXE files found: $($exeFiles.Count)"
+          $exeFiles | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
 
           foreach ($exe in $exeFiles) {
             $name = $exe.Name
@@ -116,25 +82,11 @@ jobs:
             Compress-Archive -Path $name -DestinationPath $zipName -Force
           }
 
-          Write-Host "=== ZIP output ==="
+          Write-Host "=== Result ==="
           Get-ChildItem *.zip -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
-          if (-not (Get-ChildItem *.zip -ErrorAction SilentlyContinue)) {
-            Write-Error "ERROR: No zip files created!"
-            exit 1
-          }
-          Write-Host "=== Done ==="
 
       - uses: softprops/action-gh-release@v1
         with:
-          files: |
-            *.zip
-          draft: false
+          files: "*.zip"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: EndBug/add-and-commit@v9
-        with:
-          push: origin HEAD:master
-          add: "*.txt RunFirefox.au3"
-          fetch: true
-          message: "Bump update information"
