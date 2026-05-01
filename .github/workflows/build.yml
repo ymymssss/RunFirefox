@@ -156,12 +156,6 @@ jobs:
           Write-Host "Packaging complete. ZIP files:"
           Get-ChildItem *.zip | ForEach-Object { Write-Host "$($_.Name) ($($_.Length) bytes)" }
 
-      - uses: softprops/action-gh-release@v1
-        with:
-          files: "*.zip"
-          draft: false
-          generate_release_notes: true
-
       - name: Generate changelog
         id: changelog
         shell: bash
@@ -170,13 +164,13 @@ jobs:
           git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD~5)..HEAD 2>/dev/null || echo "Initial release" >> $GITHUB_OUTPUT
           echo 'EOF' >> $GITHUB_OUTPUT
 
-      - name: Update release
-        uses: ColinPitrat/update-release@v1.0.1
+      - uses: softprops/action-gh-release@v1
         with:
-          files: "README.md"
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag: v${{ steps.get_version.outputs.VERSION }}
+          files: |
+            *.zip
+            README.md
           body: ${{ steps.changelog.outputs.changes }}
+          draft: false
 
       - uses: EndBug/add-and-commit@v9
         with:
