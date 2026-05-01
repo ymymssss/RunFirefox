@@ -26,9 +26,7 @@ jobs:
       - name: Setup AutoIt
         shell: pwsh
         run: |
-          $autoitInstaller = "$env:TEMP\autoit-installer.exe"
-          Invoke-WebRequest -Uri "https://www.autoitscript.com/cgi-bin/getfile.pl?autoit3/autoit-v3-setup.exe" -OutFile $autoitInstaller
-          Start-Process -FilePath $autoitInstaller -ArgumentList "/S" -Wait -NoNewWindow
+          choco install autoit -y --no-progress
           echo "C:\Program Files (x86)\AutoIt3" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Get the version
