@@ -2,16 +2,19 @@
 
 [English Version](docs/README-en_US.md)
 
-从 MyFirefox 修改而来，是 Firefox 的便携版引导器
+从 MyFirefox 修改而来，是 Firefox 的便携版引导器。此分支增加了密码保护功能。
 
 1. 自定义Firefox浏览器程序文件、数据文件夹、缓存文件夹的位置等。
 2. 制作Firefox便携版，可设为默认浏览器（与安装版一样，在浏览器设置里设置即可）。
 3. 支持浏览器启动/退出时运行外部程序。
 4. 支持锁定到任务栏后点击启动（打开浏览器后在任务栏右键锁定即可）
+5. **支持密码保护，AES-256 加密配置文件，U盘丢失也不怕隐私泄露**
 
 **[点此查看如何制作便携版？](docs/GUIDE.md)**
 
 ### 最近更新
+
+2026.05.02 新增密码保护功能，AES-256 加密 profile 文件夹，防止 U 盘丢失后隐私泄露
 
 2025.03.30 支持增加图标后自动构建对应图标的 RunFirefox
 
@@ -46,8 +49,12 @@
 
 mozlz4-win32.exe 和 mozlz4-win64.exe 来自 [jusw85/mozlz4: Decompress / compress mozlz4 files, with precompiled binaries for Windows and Linux](https://github.com/jusw85/mozlz4)
 
+7za_32.exe 和 7za_64.exe 来自 [7-Zip 23.01](https://7-zip.org/)，用于 AES-256 加密配置文件
+
 ### 感谢
 
 甲壳虫 https://github.com/cnjackchen/
 
 Justin Wong https://github.com/jusw85
+
+Igor Pavlov https://7-zip.org/
