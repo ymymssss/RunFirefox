@@ -756,7 +756,7 @@ Func UpdateAddonStarup()
 		FileInstall("mozlz4-win32.exe", $mozlz4Exe)
 	Else
 		$mozlz4Exe = @ScriptDir & "\" & "mozlz4-win64.exe"
-		FileInstall("mozlz4-win32.exe", $mozlz4Exe)
+		FileInstall("mozlz4-win64.exe", $mozlz4Exe)
 	EndIf
 
 	$addonStarupLz4 = $ProfileDir & "\" & "addonStartup.json.lz4";
@@ -1695,6 +1695,7 @@ Func ChangeLanguage()
 		Else
 			ShellExecute(@AutoItExe, '"' & @ScriptFullPath & '" -Set', @ScriptDir)
 		EndIf
+		Exit
 	EndIf
 EndFunc   ;==>ChangeLanguage
 ;~ =================================== Password Settings Handlers ===============================
@@ -1779,8 +1780,11 @@ Func SetPasswordDlg()
 				Local $newHash = _Crypt_HashData($newPassword, $CALG_SHA_256)
 				_Crypt_Shutdown()
 
-				; First-time encryption
-				If $PasswordHash = "" And FileExists($ProfileDir) Then
+				If $PasswordHash = "" Then
+					; First-time password: ensure profile directory exists before encrypting
+					If Not FileExists($ProfileDir) Then
+						DirCreate($ProfileDir)
+					EndIf
 					$PasswordHash = $newHash
 					$ProfileArchive = @ScriptDir & "\profiles.7z"
 					If Not EncryptProfile($newPassword) Then
@@ -1788,11 +1792,15 @@ Func SetPasswordDlg()
 						$PasswordHash = ""
 						ContinueLoop
 					EndIf
+					$PasswordHint = GUICtrlRead($hPasswordHint)
 					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
+					IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
 					MsgBox(64, $CustomArch, _t("FirstEncryptSuccess", "密码设置成功！配置文件已加密。"), 0, $hDlg)
-				ElseIf $PasswordHash <> "" Then
+				Else
 					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
 					$PasswordHash = $newHash
+					$PasswordHint = GUICtrlRead($hPasswordHint)
+					IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
 					MsgBox(64, $CustomArch, _t("PasswordChanged", "密码已更新。"), 0, $hDlg)
 				EndIf
 
@@ -1819,8 +1827,13 @@ Func ClearPassword()
 	; Password verified in SetPasswordDlg or we trust the user since they're in Settings
 	; If the profile archive exists, we need the password to decrypt
 	If FileExists($ProfileArchive) Then
+		GUISetState(@SW_DISABLE, $hSettings)
 		Local $password = PasswordPrompt()
-		If @error Then Return
+		If @error Then
+			GUISetState(@SW_ENABLE, $hSettings)
+			Return
+		EndIf
+		GUISetState(@SW_ENABLE, $hSettings)
 		If Not DecryptProfile($password) Then
 			MsgBox(16, $CustomArch, _t("DecryptFailed", "解密配置文件失败。"))
 			Return
