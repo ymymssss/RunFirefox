@@ -2155,7 +2155,7 @@ Func EncryptProfile($password)
 	Local $archiveNew = $ProfileArchive & ".new"
 	FileDelete($archiveNew)
 	ProgressOn($CustomArch, _t("Encrypting", "正在加密配置文件，请稍候..."), "", -1, -1, 16)
-	Local $cmd = '"' & $za & '" a -mx1 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
+	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE)
 	If $pid = 0 Then
 		ProgressOff()
