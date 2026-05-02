@@ -979,7 +979,7 @@ Func Settings()
 	EndIf
 
 	; Password protection
-	GUICtrlCreateGroup(_t("Security", "安全保护"), 10, 405, 480, 85)
+	GUICtrlCreateGroup(_t("Security", "安全保护"), 10, 405, 480, 80)
 	GUICtrlCreateLabel(_t("PasswordHintInput", "密码提示："), 20, 425, 60, 20)
 	$hPasswordHint = GUICtrlCreateEdit($PasswordHint, 80, 420, 200, 20, $ES_AUTOHSCROLL)
 	GUICtrlSetTip(-1, _t("PasswordHintTooltip", "设置一个只有你知道的密码提示"))
@@ -1002,7 +1002,7 @@ Func Settings()
 	EndIf
 	; Status label (store handle for updates)
 	Local $sPasswordStatus = _BuildPasswordStatus()
-	$hEncryptionStatus = GUICtrlCreateLabel($sPasswordStatus, 22, 472, 250, 15)
+	$hEncryptionStatus = GUICtrlCreateLabel($sPasswordStatus, 22, 470, 250, 15)
 
 	; 高级
 	GUICtrlCreateTabItem(_t("Advanced", "高级"))
