@@ -223,7 +223,17 @@ If $bPasswordProtected Then
 	; Only do this AFTER password is verified, so we don't lose data if user forgets password
 	CleanProfileExceptExtensions()
 	If Not DecryptProfile($sPassword) Then
-		MsgBox(16, $CustomArch, _t("DecryptFailed", "配置文件解密失败。"))
+		Local $errMsg
+		Switch @error
+			Case 1
+				$errMsg = _t("DecryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
+			Case 5
+				$errMsg = _t("DecryptErrNoArchive", "加密配置文件 %s 不存在。")
+				$errMsg = StringReplace($errMsg, "%s", $ProfileArchive)
+			Case Else
+				$errMsg = _t("DecryptFailed", "配置文件解密失败。")
+		EndSwitch
+		MsgBox(16, $CustomArch, $errMsg)
 		Exit
 	EndIf
 	; Force RunInBackground when password is set
@@ -346,9 +356,14 @@ WEnd
 
 	;~ Password protection: re-encrypt profile after Firefox exits
 	If $bPasswordProtected And $sPassword <> "" Then
-		; Wait a moment for Firefox to fully release file locks
-		Sleep(500)
-		If Not EncryptProfile($sPassword) Then
+		; Wait for Firefox to fully release file locks, retry up to 3 times
+		Local $encryptOK = False
+		For $retry = 1 To 3
+			Sleep(1000)
+			$encryptOK = EncryptProfile($sPassword)
+			If $encryptOK Then ExitLoop
+		Next
+		If Not $encryptOK Then
 			MsgBox(48, $CustomArch, _t("EncryptFailed", "加密配置文件失败！请勿直接拔除U盘，" & _
 					"再次运行 " & @ScriptName & " 以重新加密。"))
 		EndIf
@@ -1792,7 +1807,18 @@ Func SetPasswordDlg()
 					$PasswordHash = $newHash
 					$ProfileArchive = @ScriptDir & "\profiles.7z"
 					If Not EncryptProfile($newPassword) Then
-						MsgBox(16, $CustomArch, _t("FirstEncryptFailed", "首次加密配置文件失败！"), 0, $hDlg)
+						Local $errMsg
+						Switch @error
+							Case 1
+								$errMsg = _t("EncryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
+							Case 2
+								$errMsg = _t("EncryptErrBadChar", "密码包含不支持的字符。")
+							Case 5
+								$errMsg = _t("EncryptErrNoProfile", "配置文件夹不存在，请先点击"应用"保存设置。")
+							Case Else
+								$errMsg = _t("FirstEncryptFailed", "首次加密配置文件失败！")
+						EndSwitch
+						MsgBox(16, $CustomArch, $errMsg, 0, $hDlg)
 						$PasswordHash = ""
 						ContinueLoop
 					EndIf
@@ -1839,7 +1865,16 @@ Func ClearPassword()
 		EndIf
 		GUISetState(@SW_ENABLE, $hSettings)
 		If Not DecryptProfile($password) Then
-			MsgBox(16, $CustomArch, _t("DecryptFailed", "解密配置文件失败。"))
+			Local $errMsg
+			Switch @error
+				Case 1
+					$errMsg = _t("DecryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
+				Case 5
+					$errMsg = _t("DecryptErrNoArchive", "加密配置文件不存在，无法解密。")
+				Case Else
+					$errMsg = _t("DecryptFailed", "解密配置文件失败。")
+			EndSwitch
+			MsgBox(16, $CustomArch, $errMsg)
 			Return
 		EndIf
 		FileDelete($ProfileArchive)
@@ -1973,6 +2008,7 @@ EndFunc
 Func DecryptProfile($password)
 	Local $za = Get7zaPath()
 	If Not FileExists($za) Then Return SetError(1, 0, False)
+	If Not FileExists($ProfileArchive) Then Return SetError(5, 0, False)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -y'
@@ -1986,20 +2022,28 @@ EndFunc
 Func EncryptProfile($password)
 	Local $za = Get7zaPath()
 	If Not FileExists($za) Then Return SetError(1, 0, False)
+	If Not FileExists($ProfileDir) Then Return SetError(5, 0, False)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $archiveNew = $ProfileArchive & ".new"
+	FileDelete($archiveNew)
 	; Create new archive
 	Local $cmd = '"' & $za & '" a -mx0 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
 	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
-	; 7za exit code 0=success, 1=warning (non-fatal)
 	If $exitCode > 1 Then
 		FileDelete($archiveNew)
 		Return SetError(3, $exitCode, False)
 	EndIf
+	; Verify archive was created
+	If Not FileExists($archiveNew) Then
+		Return SetError(6, 0, False)
+	EndIf
 	; Replace old archive with new one
 	FileDelete($ProfileArchive)
-	If Not FileMove($archiveNew, $ProfileArchive, 1) Then Return SetError(4, 0, False)
+	If Not FileMove($archiveNew, $ProfileArchive, 1) Then
+		FileDelete($archiveNew)
+		Return SetError(4, 0, False)
+	EndIf
 	; Delete plaintext profile files (keep extensions/)
 	CleanProfileExceptExtensions()
 	Return True
