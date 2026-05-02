@@ -2122,7 +2122,7 @@ Func DecryptProfile($password)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -bsp1 -y'
-	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 2 + 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
 	Local $buf = "", $pct = -1
 	While ProcessExists($pid)
@@ -2152,7 +2152,7 @@ Func EncryptProfile($password)
 	Local $archiveNew = $ProfileArchive & ".new"
 	FileDelete($archiveNew)
 	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -xr!storage -bsp1 -y'
-	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 2 + 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
 	Local $buf = "", $pct = -1
 	While ProcessExists($pid)
