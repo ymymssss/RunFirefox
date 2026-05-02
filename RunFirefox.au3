@@ -2124,14 +2124,17 @@ Func DecryptProfile($password)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -bsp1 -y'
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
-	Local $buf = "", $pct = 0
+	Local $buf = "", $pct = -1
 	While ProcessExists($pid)
 		Sleep(200)
 		$buf &= StdoutRead($pid)
 		Local $m = StringRegExp($buf, '(\d+)%', 1)
 		If Not @error And UBound($m) > 0 Then
-			$pct = Number($m[UBound($m) - 1])
-			SplashTextOn("", _t("Decrypting", "正在解密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
+			Local $newPct = Number($m[UBound($m) - 1])
+			If $newPct <> $pct Then
+				$pct = $newPct
+				SplashTextOn("", _t("Decrypting", "正在解密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
+			EndIf
 		EndIf
 	WEnd
 	SplashOff()
@@ -2151,14 +2154,17 @@ Func EncryptProfile($password)
 	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -xr!storage -bsp1 -y'
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
-	Local $buf = "", $pct = 0
+	Local $buf = "", $pct = -1
 	While ProcessExists($pid)
 		Sleep(200)
 		$buf &= StdoutRead($pid)
 		Local $m = StringRegExp($buf, '(\d+)%', 1)
 		If Not @error And UBound($m) > 0 Then
-			$pct = Number($m[UBound($m) - 1])
-			SplashTextOn("", _t("Encrypting", "正在加密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
+			Local $newPct = Number($m[UBound($m) - 1])
+			If $newPct <> $pct Then
+				$pct = $newPct
+				SplashTextOn("", _t("Encrypting", "正在加密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
+			EndIf
 		EndIf
 	WEnd
 	SplashOff()
