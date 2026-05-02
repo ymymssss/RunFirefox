@@ -66,6 +66,7 @@ Global $hAllowBrowserUpdate, $hCheckAppUpdate, $hRunInBackground, $hChannel, $hD
 Global $hExApp, $hExAppAutoExit, $hExApp2, $hSetPassword, $hPasswordHint, $hClearPassword
 Global $aExApp, $aExApp2, $aExAppPID[2]
 Global $PasswordHash, $PasswordHint, $ProfileArchive
+Global $hEncryptionStatus, $hProfileEncryptedCheckbox
 
 Global $hEvent, $ClientKey, $FileAsso, $URLAsso
 Global $aREG[7][3] = [[$HKEY_CURRENT_USER, 'Software\Clients\StartMenuInternet'], _
@@ -211,30 +212,35 @@ EndIf
 
 ;~ Password protection: decrypt profile before launching Firefox
 Local $bPasswordProtected = ($PasswordHash <> "")
+Local $bProfileEncrypted = $bPasswordProtected And FileExists($ProfileArchive)
 Local $sPassword = ""
 If $bPasswordProtected Then
-	If Not FileExists($ProfileArchive) Then
-		MsgBox(16, $CustomArch, StringReplace(_t("ProfileArchiveNotFound", "加密配置文件 %s 不存在！"), "%s", $ProfileArchive))
-		Exit
-	EndIf
 	$sPassword = PasswordPrompt()
 	If @error Then Exit
-	; Crash recovery: clean up leftover plaintext from previous abnormal exit
-	; Only do this AFTER password is verified, so we don't lose data if user forgets password
-	CleanProfileExceptExtensions()
-	If Not DecryptProfile($sPassword) Then
-		Local $errMsg
-		Switch @error
-			Case 1
-				$errMsg = _t("DecryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
-			Case 5
-				$errMsg = _t("DecryptErrNoArchive", "加密配置文件 %s 不存在。")
-				$errMsg = StringReplace($errMsg, "%s", $ProfileArchive)
-			Case Else
-				$errMsg = _t("DecryptFailed", "配置文件解密失败。")
-		EndSwitch
-		MsgBox(16, $CustomArch, $errMsg)
-		Exit
+	If $bProfileEncrypted Then
+		; Crash recovery: clean up leftover plaintext from previous abnormal exit
+		; Only do this AFTER password is verified, so we don't lose data if user forgets password
+		CleanProfileExceptExtensions()
+		SplashTextOn("", _t("Decrypting", "正在解密配置文件..."), 300, 60, -1, -1, 1)
+		Local $decOK = DecryptProfile($sPassword)
+		SplashOff()
+		If Not $decOK Then
+			Local $errMsg
+			Switch @error
+				Case 1
+					$errMsg = _t("DecryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
+				Case 5
+					$errMsg = _t("DecryptErrNoArchive", "加密配置文件 %s 不存在。")
+					$errMsg = StringReplace($errMsg, "%s", $ProfileArchive)
+				Case Else
+					$errMsg = _t("DecryptFailed", "配置文件解密失败。")
+			EndSwitch
+			MsgBox(16, $CustomArch, $errMsg)
+			Exit
+		EndIf
+		SplashTextOn("", _t("DecryptDone", "配置文件解密完成"), 300, 60, -1, -1, 1)
+		Sleep(2000)
+		SplashOff()
 	EndIf
 	; Force RunInBackground when password is set
 	$RunInBackground = 1
@@ -355,15 +361,21 @@ While 1
 WEnd
 
 	;~ Password protection: re-encrypt profile after Firefox exits
-	If $bPasswordProtected And $sPassword <> "" Then
+	If $bPasswordProtected And $bProfileEncrypted And $sPassword <> "" Then
 		; Wait for Firefox to fully release file locks, retry up to 3 times
+		SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
 		Local $encryptOK = False
 		For $retry = 1 To 3
 			Sleep(1000)
 			$encryptOK = EncryptProfile($sPassword)
 			If $encryptOK Then ExitLoop
 		Next
-		If Not $encryptOK Then
+		SplashOff()
+		If $encryptOK Then
+			SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
+			Sleep(2000)
+			SplashOff()
+		Else
 			MsgBox(48, $CustomArch, _t("EncryptFailed", "加密配置文件失败！请勿直接拔除U盘，" & _
 					"再次运行 " & @ScriptName & " 以重新加密。"))
 		EndIf
@@ -879,7 +891,7 @@ Func Settings()
 	EndIf
 
 	Opt("ExpandEnvStrings", 0)
-	$hSettings = GUICreate(_t("AppTitle", "{AppName} - 打造自己的 Firefox 便携版"), 500, 540)
+	$hSettings = GUICreate(_t("AppTitle", "{AppName} - 打造自己的 Firefox 便携版"), 500, 565)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "ExitApp")
 	GUICtrlCreateLabel(_t("AppCopyright", "{AppName} by Ryan <github-benzBrake@woai.ru>"), 5, 10, 490, -1, $SS_CENTER)
 	GUICtrlSetCursor(-1, 0)
@@ -967,7 +979,7 @@ Func Settings()
 	EndIf
 
 	; Password protection
-	GUICtrlCreateGroup(_t("Security", "安全保护"), 10, 405, 480, 55)
+	GUICtrlCreateGroup(_t("Security", "安全保护"), 10, 405, 480, 85)
 	GUICtrlCreateLabel(_t("PasswordHintInput", "密码提示："), 20, 425, 60, 20)
 	$hPasswordHint = GUICtrlCreateEdit($PasswordHint, 80, 420, 200, 20, $ES_AUTOHSCROLL)
 	GUICtrlSetTip(-1, _t("PasswordHintTooltip", "设置一个只有你知道的密码提示"))
@@ -977,12 +989,20 @@ Func Settings()
 	$hClearPassword = GUICtrlCreateButton(_t("ClearPassword", "清除密码"), 375, 420, 80, 20)
 	GUICtrlSetTip(-1, _t("ClearPasswordTooltip", "移除密码保护"))
 	GUICtrlSetOnEvent(-1, "ClearPassword")
-	Local $sPasswordStatus = _t("PasswordNotSet", "未设置")
-	If $PasswordHash <> "" Then
-		$sPasswordStatus = _t("PasswordSet", "已设置")
+	; Encryption toggle
+	$hProfileEncryptedCheckbox = GUICtrlCreateCheckbox(_t("EncryptProfile", " 加密配置文件"), 22, 450, 160, 20)
+	GUICtrlSetTip(-1, _t("EncryptProfileTooltip", "勾选后配置文件夹将加密存储为 profiles.7z，取消则解密还原"))
+	GUICtrlSetOnEvent(-1, "ToggleEncryption")
+	If $PasswordHash = "" Then
+		GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED + $GUI_DISABLE)
+	ElseIf FileExists($ProfileArchive) Then
+		GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_CHECKED)
+	Else
+		GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED)
 	EndIf
-	GUICtrlCreateLabel(_t("PasswordStatus", "状态：") & " " & $sPasswordStatus, 22, 445, 200, 15)
-	GUICtrlSetData(-1, _t("PasswordStatus", "状态：") & " " & $sPasswordStatus)
+	; Status label (store handle for updates)
+	Local $sPasswordStatus = _BuildPasswordStatus()
+	$hEncryptionStatus = GUICtrlCreateLabel($sPasswordStatus, 22, 472, 250, 15)
 
 	; 高级
 	GUICtrlCreateTabItem(_t("Advanced", "高级"))
@@ -1724,7 +1744,7 @@ Func SetPasswordDlg()
 	Local $hDlg, $hOldPass, $hNewPass, $hNewPass2, $hOK, $hCancel
 	Local $newPassword = ""
 
-	$hDlg = GUICreate($CustomArch & " - " & _t("SetPasswordTitle", "设置密码"), 350, 210)
+	$hDlg = GUICreate($CustomArch & " - " & _t("SetPasswordTitle", "设置密码"), 350, 260)
 
 	Local $y = 15
 	If $PasswordHash <> "" Then
@@ -1739,6 +1759,17 @@ Func SetPasswordDlg()
 	GUICtrlCreateLabel(_t("ConfirmPasswordLabel", "确认密码："), 20, $y, 80, 20)
 	$hNewPass2 = GUICtrlCreateInput("", 110, $y - 2, 210, 20, BitOR($ES_PASSWORD, $ES_AUTOHSCROLL))
 	$y += 40
+
+	; Encryption checkbox
+	Local $hEncryptCheckbox = GUICtrlCreateCheckbox(_t("EncryptAfterSet", "设置密码后加密配置文件"), 20, $y, 220, 20)
+	If $PasswordHash <> "" And FileExists($ProfileArchive) Then
+		GUICtrlSetState($hEncryptCheckbox, $GUI_CHECKED + $GUI_DISABLE)
+	ElseIf $PasswordHash = "" Then
+		GUICtrlSetState($hEncryptCheckbox, $GUI_CHECKED)
+	Else
+		GUICtrlSetState($hEncryptCheckbox, $GUI_UNCHECKED)
+	EndIf
+	$y += 30
 
 	$hOK = GUICtrlCreateButton(_t("Confirm", "确定"), 100, $y, 60, 20)
 	$hCancel = GUICtrlCreateButton(_t("Cancel", "取消"), 180, $y, 60, 20)
@@ -1800,37 +1831,63 @@ Func SetPasswordDlg()
 				_Crypt_Shutdown()
 
 				If $PasswordHash = "" Then
-					; First-time password: ensure profile directory exists before encrypting
+					; First-time password
 					If Not FileExists($ProfileDir) Then
 						DirCreate($ProfileDir)
 					EndIf
 					$PasswordHash = $newHash
 					$ProfileArchive = @ScriptDir & "\profiles.7z"
-					If Not EncryptProfile($newPassword) Then
-						Local $errMsg
-						Switch @error
-							Case 1
-								$errMsg = _t("EncryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
-							Case 2
-								$errMsg = _t("EncryptErrBadChar", "密码包含不支持的字符。")
-							Case 5
-								$errMsg = _t("EncryptErrNoProfile", "配置文件夹不存在，请先点击""应用""保存设置。")
-							Case Else
-								$errMsg = _t("FirstEncryptFailed", "首次加密配置文件失败！")
-						EndSwitch
-						MsgBox(16, $CustomArch, $errMsg, 0, $hDlg)
-						$PasswordHash = ""
-						ContinueLoop
-					EndIf
 					$PasswordHint = GUICtrlRead($hPasswordHint)
 					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
 					IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
-					MsgBox(64, $CustomArch, _t("FirstEncryptSuccess", "密码设置成功！配置文件已加密。"), 0, $hDlg)
+					; Conditionally encrypt based on checkbox
+					If GUICtrlRead($hEncryptCheckbox) = $GUI_CHECKED Then
+						SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
+						Local $encOK = EncryptProfile($newPassword)
+						SplashOff()
+						If Not $encOK Then
+							Local $errMsg
+							Switch @error
+								Case 1
+									$errMsg = _t("EncryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
+								Case 2
+									$errMsg = _t("EncryptErrBadChar", "密码包含不支持的字符。")
+								Case 5
+									$errMsg = _t("EncryptErrNoProfile", "配置文件夹不存在，请先点击""应用""保存设置。")
+								Case Else
+									$errMsg = _t("FirstEncryptFailed", "首次加密配置文件失败！")
+							EndSwitch
+							MsgBox(16, $CustomArch, $errMsg, 0, $hDlg)
+							$PasswordHash = ""
+							IniWrite($inifile, "Settings", "PasswordHash", "")
+							ContinueLoop
+						EndIf
+						SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
+						Sleep(2000)
+						SplashOff()
+						MsgBox(64, $CustomArch, _t("FirstEncryptSuccess", "密码设置成功！配置文件已加密。"), 0, $hDlg)
+					Else
+						MsgBox(64, $CustomArch, _t("PasswordSetNoEncrypt", "密码设置成功！（配置文件未加密）"), 0, $hDlg)
+					EndIf
 				Else
-					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
+					; Changing existing password
 					$PasswordHash = $newHash
 					$PasswordHint = GUICtrlRead($hPasswordHint)
+					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
 					IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
+					; Re-encrypt if checkbox is checked (forced when already encrypted, or user choice)
+					If GUICtrlRead($hEncryptCheckbox) = $GUI_CHECKED Then
+						SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
+						Local $encOK = EncryptProfile($newPassword)
+						SplashOff()
+						If $encOK Then
+							SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
+							Sleep(2000)
+							SplashOff()
+						Else
+							MsgBox(16, $CustomArch, _t("EncryptFailed", "加密配置文件失败！"), 0, $hDlg)
+						EndIf
+					EndIf
 					MsgBox(64, $CustomArch, _t("PasswordChanged", "密码已更新。"), 0, $hDlg)
 				EndIf
 
@@ -1838,6 +1895,7 @@ Func SetPasswordDlg()
 				GUIDelete($hDlg)
 				GUISetState(@SW_ENABLE, $hSettings)
 				Opt("GUIOnEventMode", 1)
+				_RefreshEncryptionUI()
 		EndSwitch
 		Sleep(50)
 	WEnd
@@ -1863,8 +1921,10 @@ Func ClearPassword()
 			GUISetState(@SW_ENABLE, $hSettings)
 			Return
 		EndIf
-		GUISetState(@SW_ENABLE, $hSettings)
-		If Not DecryptProfile($password) Then
+		SplashTextOn("", _t("Decrypting", "正在解密配置文件..."), 300, 60, -1, -1, 1)
+		Local $decOK = DecryptProfile($password)
+		SplashOff()
+		If Not $decOK Then
 			Local $errMsg
 			Switch @error
 				Case 1
@@ -1874,10 +1934,15 @@ Func ClearPassword()
 				Case Else
 					$errMsg = _t("DecryptFailed", "解密配置文件失败。")
 			EndSwitch
+			GUISetState(@SW_ENABLE, $hSettings)
 			MsgBox(16, $CustomArch, $errMsg)
 			Return
 		EndIf
 		FileDelete($ProfileArchive)
+		GUISetState(@SW_ENABLE, $hSettings)
+		SplashTextOn("", _t("DecryptDone", "配置文件解密完成"), 300, 60, -1, -1, 1)
+		Sleep(2000)
+		SplashOff()
 	EndIf
 
 	$PasswordHash = ""
@@ -1885,6 +1950,7 @@ Func ClearPassword()
 	$PasswordHint = ""
 	IniWrite($inifile, "Settings", "PasswordHint", "")
 	GUICtrlSetData($hPasswordHint, "")
+	_RefreshEncryptionUI()
 	MsgBox(64, $CustomArch, _t("PasswordCleared", "密码已清除，配置文件已解密。"), 0, $hSettings)
 EndFunc
 
@@ -1973,6 +2039,87 @@ Func PasswordPrompt()
 		EndSwitch
 		Sleep(50)
 	WEnd
+EndFunc
+
+; Build password status label text
+Func _BuildPasswordStatus()
+	If $PasswordHash = "" Then
+		Return _t("PasswordStatus", "状态：") & " " & _t("PasswordNotSet", "未设置")
+	ElseIf FileExists($ProfileArchive) Then
+		Return _t("PasswordStatus", "状态：") & " " & _t("PasswordSetAndEncrypted", "已设置，已加密")
+	Else
+		Return _t("PasswordStatus", "状态：") & " " & _t("PasswordSetNotEncrypted", "已设置，未加密")
+	EndIf
+EndFunc
+
+; Refresh encryption checkbox and status label in Settings window
+Func _RefreshEncryptionUI()
+	If Not IsDeclared("hEncryptionStatus") Or $hEncryptionStatus = 0 Then Return
+	GUICtrlSetData($hEncryptionStatus, _BuildPasswordStatus())
+	If $PasswordHash = "" Then
+		GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED + $GUI_DISABLE)
+	Else
+		GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_ENABLE)
+		If FileExists($ProfileArchive) Then
+			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_CHECKED)
+		Else
+			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED)
+		EndIf
+	EndIf
+EndFunc
+
+; Handle encryption checkbox toggle in Settings
+Func ToggleEncryption()
+	If $PasswordHash = "" Then Return
+	Local $bCurrentlyEncrypted = FileExists($ProfileArchive)
+	Local $bWantEncrypt = (GUICtrlRead($hProfileEncryptedCheckbox) = $GUI_CHECKED)
+
+	If $bWantEncrypt = $bCurrentlyEncrypted Then Return
+
+	Opt("GUIOnEventMode", 0)
+	GUISetState(@SW_DISABLE, $hSettings)
+	Local $password = PasswordPrompt()
+	If @error Then
+		GUISetState(@SW_ENABLE, $hSettings)
+		Opt("GUIOnEventMode", 1)
+		If $bCurrentlyEncrypted Then
+			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_CHECKED)
+		Else
+			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED)
+		EndIf
+		Return
+	EndIf
+
+	If $bWantEncrypt Then
+		SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
+		Local $ok = EncryptProfile($password)
+		SplashOff()
+		If $ok Then
+			SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
+			Sleep(2000)
+			SplashOff()
+		Else
+			MsgBox(16, $CustomArch, _t("EncryptFailed", "加密配置文件失败！"))
+			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED)
+		EndIf
+	Else
+		SplashTextOn("", _t("Decrypting", "正在解密配置文件..."), 300, 60, -1, -1, 1)
+		Local $ok = DecryptProfile($password)
+		SplashOff()
+		If $ok Then
+			FileDelete($ProfileArchive)
+			SplashTextOn("", _t("DecryptDone", "配置文件解密完成"), 300, 60, -1, -1, 1)
+			Sleep(2000)
+			SplashOff()
+		Else
+			MsgBox(16, $CustomArch, _t("DecryptFailed", "解密配置文件失败！"))
+			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_CHECKED)
+		EndIf
+	EndIf
+
+	GUISetState(@SW_ENABLE, $hSettings)
+	Opt("GUIOnEventMode", 1)
+	_RefreshEncryptionUI()
 EndFunc
 
 ; Extract 7za executable for current architecture (same pattern as mozlz4)
