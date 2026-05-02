@@ -2121,7 +2121,7 @@ Func DecryptProfile($password)
 	If Not FileExists($ProfileArchive) Then Return SetError(5, 0, False)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
-	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -y'
+	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -bsp1 -y'
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
 	Local $buf = "", $pct = 0
@@ -2148,7 +2148,7 @@ Func EncryptProfile($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $archiveNew = $ProfileArchive & ".new"
 	FileDelete($archiveNew)
-	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -y'
+	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -xr!storage -bsp1 -y'
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
 	Local $buf = "", $pct = 0
@@ -2182,7 +2182,11 @@ Func CleanProfileExceptExtensions()
 		$file = FileFindNextFile($search)
 		If @error Then ExitLoop
 		If $file = "." Or $file = ".." Then ContinueLoop
-		If $file = "extensions" Then ContinueLoop
+		If $file = "extensions" Or $file = "cache2" Or $file = "storage" Or _
+			$file = "startupCache" Or $file = "safebrowsing" Or _
+			$file = "shader-cache" Or $file = "datareporting" Or _
+			$file = "saved-telemetry-pings" Or _
+			$file = "gmp-gmpopenh264" Or $file = "gmp-widevinecdm" Then ContinueLoop
 		FileDelete($ProfileDir & "\" & $file)
 		DirRemove($ProfileDir & "\" & $file, 1)
 	WEnd
