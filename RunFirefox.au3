@@ -2122,13 +2122,17 @@ Func DecryptProfile($password)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -y'
-	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE)
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
-	Local $timer = TimerInit()
+	Local $buf = "", $pct = 0
 	While ProcessExists($pid)
 		Sleep(200)
-		Local $s = Round(TimerDiff($timer) / 1000)
-		SplashTextOn("", _t("Decrypting", "正在解密...") & @CRLF & _t("Elapsed", "已用时 ") & $s & " s", 260, 80, -1, -1, 1 + 2)
+		$buf &= StdoutRead($pid)
+		Local $m = StringRegExp($buf, '(\d+)%', 1)
+		If Not @error And UBound($m) > 0 Then
+			$pct = Number($m[UBound($m) - 1])
+			SplashTextOn("", _t("Decrypting", "正在解密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
+		EndIf
 	WEnd
 	SplashOff()
 	If Not FileExists($ProfileDir) Then Return SetError(5, 0, False)
@@ -2145,13 +2149,17 @@ Func EncryptProfile($password)
 	Local $archiveNew = $ProfileArchive & ".new"
 	FileDelete($archiveNew)
 	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -y'
-	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE)
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 8)
 	If $pid = 0 Then Return SetError(1, 0, False)
-	Local $timer = TimerInit()
+	Local $buf = "", $pct = 0
 	While ProcessExists($pid)
 		Sleep(200)
-		Local $s = Round(TimerDiff($timer) / 1000)
-		SplashTextOn("", _t("Encrypting", "正在加密...") & @CRLF & _t("Elapsed", "已用时 ") & $s & " s", 260, 80, -1, -1, 1 + 2)
+		$buf &= StdoutRead($pid)
+		Local $m = StringRegExp($buf, '(\d+)%', 1)
+		If Not @error And UBound($m) > 0 Then
+			$pct = Number($m[UBound($m) - 1])
+			SplashTextOn("", _t("Encrypting", "正在加密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
+		EndIf
 	WEnd
 	SplashOff()
 	If Not FileExists($archiveNew) Then Return SetError(6, 0, False)
