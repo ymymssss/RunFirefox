@@ -8,7 +8,7 @@
 #AutoIt3Wrapper_UseX64=y
 #AutoIt3Wrapper_Res_Comment=Firefox Portable
 #AutoIt3Wrapper_Res_Description=Firefox Portable
-#AutoIt3Wrapper_Res_Fileversion=2.7.9.0
+#AutoIt3Wrapper_Res_Fileversion=2.8.0.0
 #AutoIt3Wrapper_Res_LegalCopyright=Ryan <github-benzBrake@woai.ru>
 #AutoIt3Wrapper_Res_Language=2052
 #AutoIt3Wrapper_Res_requestedExecutionLevel=None
@@ -50,7 +50,7 @@ Opt("GUIOnEventMode", 1)
 Opt("WinTitleMatchMode", 4)
 
 Global Const $CustomArch = "RunFirefox"
-Global Const $AppVersion = "2.7.9"
+Global Const $AppVersion = "2.8.0"
 Global $FirstRun, $FirefoxExe, $FirefoxDir
 Global $TaskBarDir = @AppDataDir & "\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
 Global $AppPID, $TaskBarLastChange
@@ -213,15 +213,15 @@ EndIf
 Local $bPasswordProtected = ($PasswordHash <> "")
 Local $sPassword = ""
 If $bPasswordProtected Then
-	If FileExists($ProfileArchive) Then
-		; Crash recovery: clean up leftover plaintext from previous abnormal exit
-		CleanProfileExceptExtensions()
-	Else
+	If Not FileExists($ProfileArchive) Then
 		MsgBox(16, $CustomArch, StringReplace(_t("ProfileArchiveNotFound", "加密配置文件 %s 不存在！"), "%s", $ProfileArchive))
 		Exit
 	EndIf
 	$sPassword = PasswordPrompt()
 	If @error Then Exit
+	; Crash recovery: clean up leftover plaintext from previous abnormal exit
+	; Only do this AFTER password is verified, so we don't lose data if user forgets password
+	CleanProfileExceptExtensions()
 	If Not DecryptProfile($sPassword) Then
 		MsgBox(16, $CustomArch, _t("DecryptFailed", "配置文件解密失败。"))
 		Exit
@@ -1730,6 +1730,8 @@ Func SetPasswordDlg()
 	EndIf
 	GUISetState(@SW_SHOW, $hDlg)
 
+	; Switch to message-loop mode for this dialog
+	Opt("GUIOnEventMode", 0)
 	Local $confirmed = False
 	Local $msg
 	While Not $confirmed
@@ -1737,6 +1739,7 @@ Func SetPasswordDlg()
 		Switch $msg
 			Case $GUI_EVENT_CLOSE, $hCancel
 				GUIDelete($hDlg)
+				Opt("GUIOnEventMode", 1)
 				Return
 			Case $hOK
 				; Verify old password if needed
@@ -1791,6 +1794,7 @@ Func SetPasswordDlg()
 				EndIf
 
 				$confirmed = True
+				Opt("GUIOnEventMode", 1)
 				GUIDelete($hDlg)
 		EndSwitch
 		Sleep(50)
@@ -1874,12 +1878,15 @@ Func PasswordPrompt()
 	GUICtrlSetState($hPassInput, $GUI_FOCUS)
 	GUISetState(@SW_SHOW, $hPass)
 
+	; Switch to message-loop mode for this dialog
+	Opt("GUIOnEventMode", 0)
 	Local $msg
 	While 1
 		$msg = GUIGetMsg()
 		Switch $msg
 			Case $GUI_EVENT_CLOSE, $hPassCancel
 				GUIDelete($hPass)
+				Opt("GUIOnEventMode", 1)
 				SetError(1)
 				Return ""
 			Case $hPassOK
@@ -1894,6 +1901,7 @@ Func PasswordPrompt()
 					If $attempts <= 0 Then
 						MsgBox(16, $CustomArch, _t("PasswordAttemptsExhausted", "密码错误，程序将退出。"))
 						GUIDelete($hPass)
+						Opt("GUIOnEventMode", 1)
 						SetError(1)
 						Return ""
 					EndIf
@@ -1904,6 +1912,7 @@ Func PasswordPrompt()
 					ContinueLoop
 				EndIf
 				GUIDelete($hPass)
+				Opt("GUIOnEventMode", 1)
 				Return $password
 		EndSwitch
 		Sleep(50)
