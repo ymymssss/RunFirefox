@@ -1846,7 +1846,9 @@ Func SetPasswordDlg()
 							EndSwitch
 							MsgBox(16, $CustomArch, $errMsg, 0, $hDlg)
 							$PasswordHash = ""
+							GUICtrlSetData($hPasswordHint, "")
 							IniWrite($inifile, "Settings", "PasswordHash", "")
+							IniWrite($inifile, "Settings", "PasswordHint", "")
 							ContinueLoop
 						EndIf
 						MsgBox(64, $CustomArch, _t("FirstEncryptSuccess", "密码设置成功！配置文件已加密。"), 0, $hDlg)
@@ -1855,6 +1857,8 @@ Func SetPasswordDlg()
 					EndIf
 				Else
 					; Changing existing password
+					; Save old hash so we can revert if re-encrypt fails
+					Local $oldHash = $PasswordHash
 					$PasswordHash = $newHash
 					$PasswordHint = GUICtrlRead($hPasswordHint)
 					IniWrite($inifile, "Settings", "PasswordHash", $newHash)
@@ -1863,7 +1867,12 @@ Func SetPasswordDlg()
 					If GUICtrlRead($hEncryptCheckbox) = $GUI_CHECKED Then
 						Local $encOK = EncryptProfile($newPassword)
 						If Not $encOK Then
-							MsgBox(16, $CustomArch, _t("EncryptFailed", "加密配置文件失败！"), 0, $hDlg)
+							; Revert to old hash — archive still uses old password
+							$PasswordHash = $oldHash
+							IniWrite($inifile, "Settings", "PasswordHash", $oldHash)
+							IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
+							MsgBox(16, $CustomArch, _t("EncryptFailed", "加密配置文件失败！密码未更新。"), 0, $hDlg)
+							ContinueLoop
 						EndIf
 					EndIf
 					MsgBox(64, $CustomArch, _t("PasswordChanged", "密码已更新。"), 0, $hDlg)
