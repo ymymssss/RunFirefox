@@ -2132,11 +2132,14 @@ Func DecryptProfile($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -bsp2 -y'
 
+	; ProgressOn requires GUIOnEventMode = 0
+	Local $prevMode = Opt("GUIOnEventMode", 0)
 	ProgressOn($CustomArch, _t("DecryptingProgress", "正在解密配置文件..."), "0%", -1, -1, 2 + 16)
 
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 4)
 	If $pid = 0 Then
 		ProgressOff()
+		Opt("GUIOnEventMode", $prevMode)
 		Return SetError(1, 0, False)
 	EndIf
 
@@ -2164,6 +2167,7 @@ Func DecryptProfile($password)
 	ProgressSet(100, "100%", _t("DecryptComplete", "解密完成"))
 	Sleep(600)
 	ProgressOff()
+	Opt("GUIOnEventMode", $prevMode)
 
 	If Not FileExists($ProfileDir) Then Return SetError(5, 0, False)
 	Return True
@@ -2180,11 +2184,14 @@ Func EncryptProfile($password)
 	FileDelete($archiveNew)
 	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -xr!storage -bsp2 -y'
 
+	; ProgressOn requires GUIOnEventMode = 0
+	Local $prevMode = Opt("GUIOnEventMode", 0)
 	ProgressOn($CustomArch, _t("EncryptingProgress", "正在加密配置文件..."), "0%", -1, -1, 2 + 16)
 
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 4)
 	If $pid = 0 Then
 		ProgressOff()
+		Opt("GUIOnEventMode", $prevMode)
 		Return SetError(1, 0, False)
 	EndIf
 
@@ -2212,6 +2219,7 @@ Func EncryptProfile($password)
 	ProgressSet(100, "100%", _t("EncryptComplete", "加密完成"))
 	Sleep(600)
 	ProgressOff()
+	Opt("GUIOnEventMode", $prevMode)
 
 	If Not FileExists($archiveNew) Then Return SetError(6, 0, False)
 	FileDelete($ProfileArchive)
