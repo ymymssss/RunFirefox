@@ -2131,30 +2131,40 @@ Func DecryptProfile($password)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -bsp2 -y'
+
+	ProgressOn($CustomArch, _t("DecryptingProgress", "正在解密配置文件..."), "0%", -1, -1, 2 + 16)
+
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 4)
-	If $pid = 0 Then Return SetError(1, 0, False)
-	Local $buf = "", $pct = -1
+	If $pid = 0 Then
+		ProgressOff()
+		Return SetError(1, 0, False)
+	EndIf
+
+	Local $buf = "", $realPct = 0, $showPct = 0, $elapsed = 0
 	While ProcessExists($pid)
 		Sleep(200)
+		$elapsed += 200
 		$buf &= StderrRead($pid)
 		Local $m = StringRegExp($buf, '(\d+)%', 1)
 		If Not @error And UBound($m) > 0 Then
-			Local $newPct = Number($m[UBound($m) - 1])
-			If $newPct <> $pct Then
-				$pct = $newPct
-				SplashTextOn("", _t("Decrypting", "正在解密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
-			EndIf
+			$realPct = Number($m[UBound($m) - 1])
+		EndIf
+		; Use real progress if available, otherwise simulate (capped at 90 until real data arrives)
+		Local $simPct = Int($elapsed / 100)
+		If $simPct > 90 Then $simPct = 90
+		Local $targetPct = $realPct
+		If $simPct > $targetPct Then $targetPct = $simPct
+		If $targetPct > $showPct Then
+			$showPct = $targetPct
+			ProgressSet($showPct, $showPct & "%")
 		EndIf
 	WEnd
 	$buf &= StderrRead($pid)
-	Local $m = StringRegExp($buf, '(\d+)%', 1)
-	If Not @error And UBound($m) > 0 Then
-		Local $finalPct = Number($m[UBound($m) - 1])
-		If $finalPct <> $pct Then
-			SplashTextOn("", _t("Decrypting", "正在解密...") & @CRLF & $finalPct & "%", 200, 80, -1, -1, 1 + 2)
-		EndIf
-	EndIf
-	SplashOff()
+
+	ProgressSet(100, "100%", _t("DecryptComplete", "解密完成"))
+	Sleep(600)
+	ProgressOff()
+
 	If Not FileExists($ProfileDir) Then Return SetError(5, 0, False)
 	Return True
 EndFunc
@@ -2169,30 +2179,40 @@ Func EncryptProfile($password)
 	Local $archiveNew = $ProfileArchive & ".new"
 	FileDelete($archiveNew)
 	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -xr!storage -bsp2 -y'
+
+	ProgressOn($CustomArch, _t("EncryptingProgress", "正在加密配置文件..."), "0%", -1, -1, 2 + 16)
+
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 4)
-	If $pid = 0 Then Return SetError(1, 0, False)
-	Local $buf = "", $pct = -1
+	If $pid = 0 Then
+		ProgressOff()
+		Return SetError(1, 0, False)
+	EndIf
+
+	Local $buf = "", $realPct = 0, $showPct = 0, $elapsed = 0
 	While ProcessExists($pid)
 		Sleep(200)
+		$elapsed += 200
 		$buf &= StderrRead($pid)
 		Local $m = StringRegExp($buf, '(\d+)%', 1)
 		If Not @error And UBound($m) > 0 Then
-			Local $newPct = Number($m[UBound($m) - 1])
-			If $newPct <> $pct Then
-				$pct = $newPct
-				SplashTextOn("", _t("Encrypting", "正在加密...") & @CRLF & $pct & "%", 200, 80, -1, -1, 1 + 2)
-			EndIf
+			$realPct = Number($m[UBound($m) - 1])
+		EndIf
+		; Use real progress if available, otherwise simulate (capped at 90 until real data arrives)
+		Local $simPct = Int($elapsed / 100)
+		If $simPct > 90 Then $simPct = 90
+		Local $targetPct = $realPct
+		If $simPct > $targetPct Then $targetPct = $simPct
+		If $targetPct > $showPct Then
+			$showPct = $targetPct
+			ProgressSet($showPct, $showPct & "%")
 		EndIf
 	WEnd
 	$buf &= StderrRead($pid)
-	Local $m = StringRegExp($buf, '(\d+)%', 1)
-	If Not @error And UBound($m) > 0 Then
-		Local $finalPct = Number($m[UBound($m) - 1])
-		If $finalPct <> $pct Then
-			SplashTextOn("", _t("Encrypting", "正在加密...") & @CRLF & $finalPct & "%", 200, 80, -1, -1, 1 + 2)
-		EndIf
-	EndIf
-	SplashOff()
+
+	ProgressSet(100, "100%", _t("EncryptComplete", "加密完成"))
+	Sleep(600)
+	ProgressOff()
+
 	If Not FileExists($archiveNew) Then Return SetError(6, 0, False)
 	FileDelete($ProfileArchive)
 	If Not FileMove($archiveNew, $ProfileArchive, 1) Then
