@@ -221,9 +221,7 @@ If $bPasswordProtected Then
 		; Crash recovery: clean up leftover plaintext from previous abnormal exit
 		; Only do this AFTER password is verified, so we don't lose data if user forgets password
 		CleanProfileExceptExtensions()
-		SplashTextOn("", _t("Decrypting", "正在解密配置文件..."), 300, 60, -1, -1, 1)
 		Local $decOK = DecryptProfile($sPassword)
-		SplashOff()
 		If Not $decOK Then
 			Local $errMsg
 			Switch @error
@@ -238,9 +236,6 @@ If $bPasswordProtected Then
 			MsgBox(16, $CustomArch, $errMsg)
 			Exit
 		EndIf
-		SplashTextOn("", _t("DecryptDone", "配置文件解密完成"), 300, 60, -1, -1, 1)
-		Sleep(2000)
-		SplashOff()
 	EndIf
 	; Force RunInBackground when password is set
 	$RunInBackground = 1
@@ -363,19 +358,13 @@ WEnd
 	;~ Password protection: re-encrypt profile after Firefox exits
 	If $bPasswordProtected And $bProfileEncrypted And $sPassword <> "" Then
 		; Wait for Firefox to fully release file locks, retry up to 3 times
-		SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
 		Local $encryptOK = False
 		For $retry = 1 To 3
 			Sleep(1000)
 			$encryptOK = EncryptProfile($sPassword)
 			If $encryptOK Then ExitLoop
 		Next
-		SplashOff()
-		If $encryptOK Then
-			SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
-			Sleep(2000)
-			SplashOff()
-		Else
+		If Not $encryptOK Then
 			MsgBox(48, $CustomArch, _t("EncryptFailed", "加密配置文件失败！请勿直接拔除U盘，" & _
 					"再次运行 " & @ScriptName & " 以重新加密。"))
 		EndIf
@@ -1842,9 +1831,7 @@ Func SetPasswordDlg()
 					IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
 					; Conditionally encrypt based on checkbox
 					If GUICtrlRead($hEncryptCheckbox) = $GUI_CHECKED Then
-						SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
 						Local $encOK = EncryptProfile($newPassword)
-						SplashOff()
 						If Not $encOK Then
 							Local $errMsg
 							Switch @error
@@ -1862,9 +1849,6 @@ Func SetPasswordDlg()
 							IniWrite($inifile, "Settings", "PasswordHash", "")
 							ContinueLoop
 						EndIf
-						SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
-						Sleep(2000)
-						SplashOff()
 						MsgBox(64, $CustomArch, _t("FirstEncryptSuccess", "密码设置成功！配置文件已加密。"), 0, $hDlg)
 					Else
 						MsgBox(64, $CustomArch, _t("PasswordSetNoEncrypt", "密码设置成功！（配置文件未加密）"), 0, $hDlg)
@@ -1877,14 +1861,8 @@ Func SetPasswordDlg()
 					IniWrite($inifile, "Settings", "PasswordHint", $PasswordHint)
 					; Re-encrypt if checkbox is checked (forced when already encrypted, or user choice)
 					If GUICtrlRead($hEncryptCheckbox) = $GUI_CHECKED Then
-						SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
 						Local $encOK = EncryptProfile($newPassword)
-						SplashOff()
-						If $encOK Then
-							SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
-							Sleep(2000)
-							SplashOff()
-						Else
+						If Not $encOK Then
 							MsgBox(16, $CustomArch, _t("EncryptFailed", "加密配置文件失败！"), 0, $hDlg)
 						EndIf
 					EndIf
@@ -1921,9 +1899,7 @@ Func ClearPassword()
 			GUISetState(@SW_ENABLE, $hSettings)
 			Return
 		EndIf
-		SplashTextOn("", _t("Decrypting", "正在解密配置文件..."), 300, 60, -1, -1, 1)
 		Local $decOK = DecryptProfile($password)
-		SplashOff()
 		If Not $decOK Then
 			Local $errMsg
 			Switch @error
@@ -1940,9 +1916,6 @@ Func ClearPassword()
 		EndIf
 		FileDelete($ProfileArchive)
 		GUISetState(@SW_ENABLE, $hSettings)
-		SplashTextOn("", _t("DecryptDone", "配置文件解密完成"), 300, 60, -1, -1, 1)
-		Sleep(2000)
-		SplashOff()
 	EndIf
 
 	$PasswordHash = ""
@@ -2055,6 +2028,7 @@ EndFunc
 ; Refresh encryption checkbox and status label in Settings window
 Func _RefreshEncryptionUI()
 	If Not IsDeclared("hEncryptionStatus") Or $hEncryptionStatus = 0 Then Return
+	If IsDeclared("hSettings") And $hSettings <> 0 Then GUISwitch($hSettings)
 	GUICtrlSetData($hEncryptionStatus, _BuildPasswordStatus())
 	If $PasswordHash = "" Then
 		GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED + $GUI_DISABLE)
@@ -2091,26 +2065,15 @@ Func ToggleEncryption()
 	EndIf
 
 	If $bWantEncrypt Then
-		SplashTextOn("", _t("Encrypting", "正在加密配置文件..."), 300, 60, -1, -1, 1)
 		Local $ok = EncryptProfile($password)
-		SplashOff()
-		If $ok Then
-			SplashTextOn("", _t("EncryptDone", "配置文件加密完成"), 300, 60, -1, -1, 1)
-			Sleep(2000)
-			SplashOff()
-		Else
+		If Not $ok Then
 			MsgBox(16, $CustomArch, _t("EncryptFailed", "加密配置文件失败！"))
 			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_UNCHECKED)
 		EndIf
 	Else
-		SplashTextOn("", _t("Decrypting", "正在解密配置文件..."), 300, 60, -1, -1, 1)
 		Local $ok = DecryptProfile($password)
-		SplashOff()
 		If $ok Then
 			FileDelete($ProfileArchive)
-			SplashTextOn("", _t("DecryptDone", "配置文件解密完成"), 300, 60, -1, -1, 1)
-			Sleep(2000)
-			SplashOff()
 		Else
 			MsgBox(16, $CustomArch, _t("DecryptFailed", "解密配置文件失败！"))
 			GUICtrlSetState($hProfileEncryptedCheckbox, $GUI_CHECKED)
@@ -2158,10 +2121,27 @@ Func DecryptProfile($password)
 	If Not FileExists($ProfileArchive) Then Return SetError(5, 0, False)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
+	ProgressOn($CustomArch, _t("Decrypting", "正在解密配置文件，请稍候..."), "", -1, -1, 16)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -y'
-	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
-	; 7za exit code 0=success, 1=warning (non-fatal, e.g. locked files)
-	If $exitCode > 1 Then Return SetError(3, $exitCode, False)
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE)
+	If $pid = 0 Then
+		ProgressOff()
+		Return SetError(1, 0, False)
+	EndIf
+	Local $pct = 0
+	While ProcessExists($pid)
+		$pct = Mod($pct + 3, 100)
+		ProgressSet($pct, "", _t("DecryptingProgress", "处理中..."))
+		Sleep(500)
+	WEnd
+	Local $exitCode = ProcessWaitClose($pid, 1)
+	If $exitCode > 1 Then
+		ProgressOff()
+		Return SetError(3, $exitCode, False)
+	EndIf
+	ProgressSet(100, "", _t("Done", "完成"))
+	Sleep(300)
+	ProgressOff()
 	Return True
 EndFunc
 
@@ -2174,24 +2154,34 @@ Func EncryptProfile($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $archiveNew = $ProfileArchive & ".new"
 	FileDelete($archiveNew)
-	; Create new archive
-	Local $cmd = '"' & $za & '" a -mx0 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
-	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
+	ProgressOn($CustomArch, _t("Encrypting", "正在加密配置文件，请稍候..."), "", -1, -1, 16)
+	Local $cmd = '"' & $za & '" a -mx1 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE)
+	If $pid = 0 Then
+		ProgressOff()
+		Return SetError(1, 0, False)
+	EndIf
+	Local $pct = 0
+	While ProcessExists($pid)
+		$pct = Mod($pct + 3, 100)
+		ProgressSet($pct, "", _t("EncryptingProgress", "处理中..."))
+		Sleep(500)
+	WEnd
+	Local $exitCode = ProcessWaitClose($pid, 1)
 	If $exitCode > 1 Then
+		ProgressOff()
 		FileDelete($archiveNew)
 		Return SetError(3, $exitCode, False)
 	EndIf
-	; Verify archive was created
-	If Not FileExists($archiveNew) Then
-		Return SetError(6, 0, False)
-	EndIf
-	; Replace old archive with new one
+	ProgressSet(100, "", _t("Done", "完成"))
+	Sleep(300)
+	ProgressOff()
+	If Not FileExists($archiveNew) Then Return SetError(6, 0, False)
 	FileDelete($ProfileArchive)
 	If Not FileMove($archiveNew, $ProfileArchive, 1) Then
 		FileDelete($archiveNew)
 		Return SetError(4, 0, False)
 	EndIf
-	; Delete plaintext profile files (keep extensions/)
 	CleanProfileExceptExtensions()
 	Return True
 EndFunc
