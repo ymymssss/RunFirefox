@@ -1700,11 +1700,15 @@ EndFunc   ;==>ChangeLanguage
 ;~ =================================== Password Settings Handlers ===============================
 
 Func SetPasswordDlg()
+	; Switch to message mode before creating dialog
+	Opt("GUIOnEventMode", 0)
+	; Disable parent while dialog is open
+	GUISetState(@SW_DISABLE, $hSettings)
+
 	Local $hDlg, $hOldPass, $hNewPass, $hNewPass2, $hOK, $hCancel
 	Local $newPassword = ""
 
-	$hDlg = GUICreate($CustomArch & " - " & _t("SetPasswordTitle", "设置密码"), 350, 210, -1, -1, _
-		BitOR($WS_CAPTION, $WS_SYSMENU, $WS_POPUP), -1, $hSettings)
+	$hDlg = GUICreate($CustomArch & " - " & _t("SetPasswordTitle", "设置密码"), 350, 210)
 
 	Local $y = 15
 	If $PasswordHash <> "" Then
@@ -1730,8 +1734,6 @@ Func SetPasswordDlg()
 	EndIf
 	GUISetState(@SW_SHOW, $hDlg)
 
-	; Switch to message-loop mode for this dialog
-	Opt("GUIOnEventMode", 0)
 	Local $confirmed = False
 	Local $msg
 	While Not $confirmed
@@ -1739,6 +1741,7 @@ Func SetPasswordDlg()
 		Switch $msg
 			Case $GUI_EVENT_CLOSE, $hCancel
 				GUIDelete($hDlg)
+				GUISetState(@SW_ENABLE, $hSettings)
 				Opt("GUIOnEventMode", 1)
 				Return
 			Case $hOK
@@ -1794,8 +1797,9 @@ Func SetPasswordDlg()
 				EndIf
 
 				$confirmed = True
-				Opt("GUIOnEventMode", 1)
 				GUIDelete($hDlg)
+				GUISetState(@SW_ENABLE, $hSettings)
+				Opt("GUIOnEventMode", 1)
 		EndSwitch
 		Sleep(50)
 	WEnd
@@ -1853,12 +1857,14 @@ EndFunc   ;==>SaveLang
 
 ; Prompt user for password, return plaintext password. Sets @error on failure/cancel.
 Func PasswordPrompt()
+	; Switch to message mode before creating dialog
+	Opt("GUIOnEventMode", 0)
+
 	Local $hPass, $hPassInput, $hPassHint, $hPassOK, $hPassCancel, $hAttemptLabel
 	Local $attempts = 3
 	Local $password = ""
 
-	$hPass = GUICreate($CustomArch & " - " & _t("EnterPassword", "请输入密码"), 380, 180, -1, -1, _
-		BitOR($WS_CAPTION, $WS_SYSMENU, $WS_POPUP))
+	$hPass = GUICreate($CustomArch & " - " & _t("EnterPassword", "请输入密码"), 380, 180)
 
 	GUICtrlCreateLabel(_t("PasswordPrompt", "此配置文件已加密保护，请输入密码："), 20, 15, 340, 20)
 
@@ -1878,8 +1884,6 @@ Func PasswordPrompt()
 	GUICtrlSetState($hPassInput, $GUI_FOCUS)
 	GUISetState(@SW_SHOW, $hPass)
 
-	; Switch to message-loop mode for this dialog
-	Opt("GUIOnEventMode", 0)
 	Local $msg
 	While 1
 		$msg = GUIGetMsg()
