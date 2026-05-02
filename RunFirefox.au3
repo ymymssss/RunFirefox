@@ -1814,7 +1814,7 @@ Func SetPasswordDlg()
 							Case 2
 								$errMsg = _t("EncryptErrBadChar", "密码包含不支持的字符。")
 							Case 5
-								$errMsg = _t("EncryptErrNoProfile", "配置文件夹不存在，请先点击"应用"保存设置。")
+								$errMsg = _t("EncryptErrNoProfile", "配置文件夹不存在，请先点击""应用""保存设置。")
 							Case Else
 								$errMsg = _t("FirstEncryptFailed", "首次加密配置文件失败！")
 						EndSwitch
