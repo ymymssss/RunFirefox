@@ -2121,7 +2121,7 @@ Func DecryptProfile($password)
 	If Not FileExists($ProfileArchive) Then Return SetError(5, 0, False)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
-	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -bs -y'
+	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -bsp2 -y'
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 4)
 	If $pid = 0 Then Return SetError(1, 0, False)
 	Local $buf = "", $pct = -1
@@ -2159,7 +2159,7 @@ Func EncryptProfile($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $archiveNew = $ProfileArchive & ".new"
 	FileDelete($archiveNew)
-	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -xr!storage -bs -y'
+	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -xr!storage -bsp2 -y'
 	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE, 4)
 	If $pid = 0 Then Return SetError(1, 0, False)
 	Local $buf = "", $pct = -1
