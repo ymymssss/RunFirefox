@@ -1774,6 +1774,10 @@ Func SetPasswordDlg()
 					MsgBox(16, $CustomArch, _t("PasswordTooShort", "密码长度不能少于4位！"), 0, $hDlg)
 					ContinueLoop
 				EndIf
+				If StringInStr($newPassword, '"') Then
+					MsgBox(16, $CustomArch, _t("PasswordInvalidChars", "密码不能包含双引号字符。"), 0, $hDlg)
+					ContinueLoop
+				EndIf
 
 				; Save password hash
 				_Crypt_Startup()
@@ -1946,32 +1950,56 @@ Func Get7zaPath()
 		$exePath = @ScriptDir & "\7za_64.exe"
 		FileInstall("7za_64.exe", $exePath)
 	EndIf
+	; Fallback: try the other arch binary if the preferred one doesn't exist
+	If Not FileExists($exePath) Then
+		If @OSArch = "X86" Then
+			$exePath = @ScriptDir & "\7za_64.exe"
+		Else
+			$exePath = @ScriptDir & "\7za_32.exe"
+		EndIf
+	EndIf
 	Return $exePath
+EndFunc
+
+; Escape password for 7za command line: double % for cmd.exe, reject "
+Func _EscapePassword($password)
+	If StringInStr($password, '"') Then
+		Return SetError(1, 0, "")
+	EndIf
+	Return StringReplace($password, "%", "%%")
 EndFunc
 
 ; Decrypt profiles.7z into profiles/ folder
 Func DecryptProfile($password)
 	Local $za = Get7zaPath()
-	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $password & '" -y'
+	If Not FileExists($za) Then Return SetError(1, 0, False)
+	Local $escaped = _EscapePassword($password)
+	If @error Then Return SetError(2, 0, False)
+	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -y'
 	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
-	If $exitCode <> 0 Then Return False
+	; 7za exit code 0=success, 1=warning (non-fatal, e.g. locked files)
+	If $exitCode > 1 Then Return SetError(3, $exitCode, False)
 	Return True
 EndFunc
 
 ; Encrypt profiles/ folder into profiles.7z (excluding extensions/)
 Func EncryptProfile($password)
 	Local $za = Get7zaPath()
+	If Not FileExists($za) Then Return SetError(1, 0, False)
+	Local $escaped = _EscapePassword($password)
+	If @error Then Return SetError(2, 0, False)
 	Local $archiveNew = $ProfileArchive & ".new"
 	; Create new archive
-	Local $cmd = '"' & $za & '" a -mx0 -p"' & $password & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
+	Local $cmd = '"' & $za & '" a -mx0 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -y'
 	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
-	If $exitCode <> 0 Then
+	; 7za exit code 0=success, 1=warning (non-fatal)
+	If $exitCode > 1 Then
 		FileDelete($archiveNew)
-		Return False
+		Return SetError(3, $exitCode, False)
 	EndIf
 	; Replace old archive with new one
 	FileDelete($ProfileArchive)
-	If Not FileMove($archiveNew, $ProfileArchive, 1) Then Return False
+	If Not FileMove($archiveNew, $ProfileArchive, 1) Then Return SetError(4, 0, False)
 	; Delete plaintext profile files (keep extensions/)
 	CleanProfileExceptExtensions()
 	Return True
