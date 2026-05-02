@@ -349,8 +349,8 @@ WEnd
 		; Wait a moment for Firefox to fully release file locks
 		Sleep(500)
 		If Not EncryptProfile($sPassword) Then
-			MsgBox(48, $CustomArch, _t("EncryptFailed", "加密配置文件失败！请勿直接拔除U盘，
-再次运行 " & @ScriptName & " 以重新加密。"))
+			MsgBox(48, $CustomArch, _t("EncryptFailed", "加密配置文件失败！请勿直接拔除U盘，" & _
+					"再次运行 " & @ScriptName & " 以重新加密。"))
 		EndIf
 	EndIf
 

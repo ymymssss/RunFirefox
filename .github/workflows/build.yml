@@ -38,55 +38,43 @@ jobs:
           $autoitDir = "${env:ProgramFiles(x86)}\AutoIt3"
           $aut2exe = Get-ChildItem "$autoitDir\Aut2Exe\Aut2Exe.exe" -ErrorAction SilentlyContinue
           if (-not $aut2exe) { log "ERROR: aut2exe not found!"; exit 1 }
-          log "aut2exe path: $($aut2exe.FullName)"
-          log "aut2exe exists: $(Test-Path $aut2exe.FullName)"
-          log "aut2exe size: $($aut2exe.Length) bytes"
+          log "aut2exe: $($aut2exe.FullName)"
 
           function Run-Aut2Exe($inFile, $outFile, $arch, $iconFile) {
             $args = "/in `"$inFile`" /out `"$outFile`" /$arch /unicode"
             if ($iconFile -and (Test-Path $iconFile)) {
               $args += " /icon `"$iconFile`""
             }
-            log "  Command: $($aut2exe.FullName) $args"
+            log "  Compiling: $outFile ($arch)"
 
+            # Aut2Exe requires UseShellExecute=true - without it, the process
+            # exits silently without producing output.
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $aut2exe.FullName
             $psi.Arguments = $args
-            $psi.UseShellExecute = $false
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError = $true
-            $psi.CreateNoWindow = $true
+            $psi.UseShellExecute = $true
             $psi.WorkingDirectory = (Get-Location).Path
 
             try {
               $proc = [System.Diagnostics.Process]::Start($psi)
-              $stdout = $proc.StandardOutput.ReadToEnd()
-              $stderr = $proc.StandardError.ReadToEnd()
-              $proc.WaitForExit(60000)
-              log "  stdout: $stdout"
-              log "  stderr: $stderr"
-              log "  exit=$($proc.ExitCode), exists=$(Test-Path $outFile), size=$((Get-Item $outFile -ErrorAction SilentlyContinue).Length)"
+              $proc.WaitForExit(120000)
+              if (Test-Path $outFile) {
+                $size = (Get-Item $outFile).Length
+                log "  OK: $outFile ($size bytes)"
+              } else {
+                log "  FAIL: $outFile not created (exit=$($proc.ExitCode))"
+                exit 1
+              }
             } catch {
               log "  EXCEPTION: $_"
+              exit 1
             }
           }
 
-          # Test 1: Hello World
-          log "`n=== Test 1: Hello World ==="
-          Set-Content -Path "test_hello.au3" -Value "MsgBox(0, '', 'Hello')"
-          Run-Aut2Exe "test_hello.au3" "test_hello.exe" "x86"
-
-          # Test 2: With Crypt include
-          log "`n=== Test 2: With Crypt.au3 ==="
-          Set-Content -Path "test_crypt.au3" -Value "#include <Crypt.au3>`nMsgBox(0,'','test')"
-          Run-Aut2Exe "test_crypt.au3" "test_crypt.exe" "x86"
-
-          # Test 3: Real RunFirefox (32-bit)
-          log "`n=== Test 3: RunFirefox.au3 x86 ==="
+          # Compile RunFirefox (32-bit)
           Run-Aut2Exe "RunFirefox.au3" "RunFirefox.exe" "x86" "icons\Firefox.ico"
 
-          # Test 4: Real RunFirefox (64-bit)
-          log "`n=== Test 4: RunFirefox.au3 x64 ==="
+          # Compile RunFirefox (64-bit)
           Run-Aut2Exe "RunFirefox.au3" "RunFirefox_x64.exe" "x64" "icons\Firefox.ico"
 
           # Save log
