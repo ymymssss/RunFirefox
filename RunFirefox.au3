@@ -2123,14 +2123,18 @@ Func DecryptProfile($password)
 	If @error Then Return SetError(2, 0, False)
 	ProgressOn($CustomArch, _t("Decrypting", "正在解密配置文件，请稍候..."), _t("DecryptingProgress", "处理中..."), -1, -1, 2 + 16)
 	Local $cmd = '"' & $za & '" x "' & $ProfileArchive & '" -o"' & @ScriptDir & '" -p"' & $escaped & '" -y'
-	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
-	If $exitCode > 1 Then
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE)
+	If $pid = 0 Then
 		ProgressOff()
-		Return SetError(3, $exitCode, False)
+		Return SetError(1, 0, False)
 	EndIf
+	While ProcessExists($pid)
+		Sleep(200)
+	WEnd
 	ProgressSet(100, "", _t("Done", "完成"))
 	Sleep(500)
 	ProgressOff()
+	If Not FileExists($ProfileDir) Then Return SetError(5, 0, False)
 	Return True
 EndFunc
 
@@ -2145,12 +2149,14 @@ Func EncryptProfile($password)
 	FileDelete($archiveNew)
 	ProgressOn($CustomArch, _t("Encrypting", "正在加密配置文件，请稍候..."), _t("EncryptingProgress", "处理中..."), -1, -1, 2 + 16)
 	Local $cmd = '"' & $za & '" a -mx5 -p"' & $escaped & '" -mhe=on "' & $archiveNew & '" "' & $ProfileDir & '" -xr!extensions -xr!cache2 -xr!startupCache -xr!safebrowsing -xr!gmp-* -xr!shader-cache -xr!datareporting -xr!saved-telemetry-pings -y'
-	Local $exitCode = RunWait($cmd, @ScriptDir, @SW_HIDE)
-	If $exitCode > 1 Then
+	Local $pid = Run($cmd, @ScriptDir, @SW_HIDE)
+	If $pid = 0 Then
 		ProgressOff()
-		FileDelete($archiveNew)
-		Return SetError(3, $exitCode, False)
+		Return SetError(1, 0, False)
 	EndIf
+	While ProcessExists($pid)
+		Sleep(200)
+	WEnd
 	ProgressSet(100, "", _t("Done", "完成"))
 	Sleep(500)
 	ProgressOff()
