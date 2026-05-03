@@ -218,9 +218,6 @@ If $bPasswordProtected Then
 	$sPassword = PasswordPrompt()
 	If @error Then Exit
 	If $bProfileEncrypted Then
-		; Crash recovery: clean up leftover plaintext from previous abnormal exit
-		; Only do this AFTER password is verified, so we don't lose data if user forgets password
-		CleanProfileExceptExtensions()
 		Local $decOK = DecryptProfile($sPassword)
 		If Not $decOK Then
 			Local $errMsg
@@ -236,6 +233,8 @@ If $bPasswordProtected Then
 			MsgBox(16, $CustomArch, $errMsg)
 			Exit
 		EndIf
+		; Crash recovery: clean up leftover plaintext from previous abnormal exit
+		CleanProfileExceptExtensions()
 	EndIf
 	; Force RunInBackground when password is set
 	$RunInBackground = 1
@@ -247,19 +246,17 @@ $AppPID = Run($FirefoxPath & ' -profile "' & $ProfileDir & '" ' & $Params, $Fire
 FileChangeDir(@ScriptDir)
 CreateSettingsShortcut(@ScriptDir & "\" & $ScriptNameWithOutSuffix & ".vbs")
 
-If $FirefoxIsRunning Then
 	$exe = StringRegExpReplace(@AutoItExe, ".*\\", "")
 	$list = ProcessList($exe)
 	For $i = 1 To $list[0][0]
 		If $list[$i][1] <> @AutoItPID And GetProcPath($list[$i][1]) = @AutoItExe Then
-			Exit ;exit if another instance of myfirefox is running
+		Exit ;exit if another instance of myfirefox is running
 		EndIf
 	Next
-EndIf
 
 ; Start external apps
 If $ExApp <> "" Then
-	$aExApp = StringSplit($ExApp, "||", 1)
+	$aExApp = StringSplit($ExApp, "||")
 	ReDim $aExAppPID[$aExApp[0] + 1]
 	$aExAppPID[0] = $aExApp[0]
 	For $i = 1 To $aExApp[0]
@@ -411,7 +408,7 @@ Func AppIsRunning($AppPath)
 	Local $exe = StringRegExpReplace($AppPath, '.*\\', '')
 	Local $list = ProcessList($exe)
 	For $i = 1 To $list[0][0]
-		If StringInStr(GetProcPath($list[$i][1]), $AppPath) Then
+		If GetProcPath($list[$i][1]) = $AppPath Then
 			Return $list[$i][1]
 		EndIf
 	Next
@@ -1839,7 +1836,7 @@ Func SetPasswordDlg()
 									$errMsg = _t("EncryptErrNo7za", "找不到 7za 压缩工具，请确保 7za_64.exe 与程序在同一目录。")
 								Case 2
 									$errMsg = _t("EncryptErrBadChar", "密码包含不支持的字符。")
-								Case 5
+								Case 3
 									$errMsg = _t("EncryptErrNoProfile", "配置文件夹不存在，请先点击""应用""保存设置。")
 								Case Else
 									$errMsg = _t("FirstEncryptFailed", "首次加密配置文件失败！")
@@ -2177,7 +2174,7 @@ EndFunc
 Func EncryptProfile($password)
 	Local $za = Get7zaPath()
 	If Not FileExists($za) Then Return SetError(1, 0, False)
-	If Not FileExists($ProfileDir) Then Return SetError(5, 0, False)
+	If Not FileExists($ProfileDir) Then Return SetError(3, 0, False)
 	Local $escaped = _EscapePassword($password)
 	If @error Then Return SetError(2, 0, False)
 	Local $archiveNew = $ProfileArchive & ".new"
@@ -2222,7 +2219,8 @@ Func EncryptProfile($password)
 	Opt("GUIOnEventMode", $prevMode)
 
 	If Not FileExists($archiveNew) Then Return SetError(6, 0, False)
-	FileDelete($ProfileArchive)
+	; Atomic replace via FileMove with overwrite — same filesystem means a rename,
+	; so the old archive persists until the new one is safely in place.
 	If Not FileMove($archiveNew, $ProfileArchive, 1) Then
 		FileDelete($archiveNew)
 		Return SetError(4, 0, False)
